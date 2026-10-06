@@ -73,18 +73,17 @@ fun TileView(
             )
             .padding(4.dp)
             .background(background, TileShape)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TileIconView(tile.icon, color = if (on || flashing) content else JeedomTvColors.Accent, modifier = Modifier.size(28.dp))
+        val (room, label) = splitRoom(tile.name)
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                tile.name,
-                color = content,
-                fontSize = 17.sp,
-                maxLines = 2,
+                room.orEmpty(),
+                color = muted,
+                fontSize = 14.sp,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 21.sp,
                 modifier = Modifier.weight(1f),
             )
             // Touches 1 à 9 : action directe sur la tuile N.
@@ -92,17 +91,40 @@ fun TileView(
                 Text(number.toString(), color = muted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
-        Spacer(Modifier.weight(1f))
         Text(
-            tileValueText(tile),
-            color = if (tile.type == TileType.Switch || tile.type == TileType.Scene) muted else content,
-            fontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 26.sp else 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
+            label,
+            color = content,
+            fontSize = 17.sp,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
+            lineHeight = 20.sp,
         )
+        Spacer(Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TileIconView(tile.icon, color = if (on || flashing) content else JeedomTvColors.Accent, modifier = Modifier.size(26.dp))
+            Text(
+                tileValueText(tile),
+                color = if (tile.type == TileType.Switch || tile.type == TileType.Scene) muted else content,
+                fontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 24.sp else 19.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
+
+/**
+ * Les pages par type nomment les tuiles « Pièce · Nom » : la pièce s'affiche à part, en petit,
+ * pour laisser au nom toute la largeur de la tuile. Sans séparateur, pas de pièce.
+ */
+fun splitRoom(name: String): Pair<String?, String> {
+    val index = name.indexOf(ROOM_SEPARATOR)
+    if (index <= 0 || index + ROOM_SEPARATOR.length >= name.length) return null to name
+    return name.substring(0, index).trim() to name.substring(index + ROOM_SEPARATOR.length).trim()
+}
+
+private const val ROOM_SEPARATOR = " · "
 
 /** Texte de la valeur selon le type : « Allumé », « 20,5 °C », « 40 % »… */
 fun tileValueText(tile: Tile): String = when (tile.type) {
