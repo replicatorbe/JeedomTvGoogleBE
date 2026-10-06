@@ -10,6 +10,7 @@ import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
 import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
+import be.jeedomtv.model.TvState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
 import kotlinx.serialization.SerializationException
@@ -84,6 +85,8 @@ class JeedomHttpDriver internal constructor(
             },
         )
     }
+
+    override suspend fun state(state: TvState): Unit = TODO("MVP 3")
 
     // --- HTTP -----------------------------------------------------------------------------------
 

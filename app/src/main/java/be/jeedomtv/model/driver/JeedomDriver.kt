@@ -5,6 +5,7 @@ import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.PingInfo
 import be.jeedomtv.model.TileAction
+import be.jeedomtv.model.TvState
 
 /**
  * Accès au plugin Jeedom `jeetvbe` (contrat : docs/api.md). Le reste de l'application ne
@@ -26,6 +27,9 @@ interface JeedomDriver {
      * (null : réponse immédiate donnant le curseur de départ).
      */
     suspend fun changes(since: String?): Changes
+
+    /** Signale à Jeedom l'état de la TV (visible, écran allumé, page affichée). */
+    suspend fun state(state: TvState)
 }
 
 fun interface JeedomDriverFactory {

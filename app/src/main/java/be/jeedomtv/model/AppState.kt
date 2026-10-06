@@ -25,6 +25,12 @@ data class PendingAction(
     val label: String,
 )
 
+/** Bandeau d'un ordre `notify` de Jeedom. */
+data class Banner(
+    val title: String,
+    val message: String,
+)
+
 /** État complet de l'application : la seule chose que les vues observent. */
 data class AppState(
     val screen: Screen = Screen.Loading,
@@ -49,6 +55,14 @@ data class AppState(
     val offline: Boolean = false,
     /** L'écran de l'application est visible (sinon la TV affiche une autre application). */
     val uiVisible: Boolean = false,
+    /** Écran de la TV allumé (false : TV en veille). */
+    val screenOn: Boolean = true,
+    /** Bandeau `notify` affiché quelques secondes. */
+    val banner: Banner? = null,
+    /** Demande de passage en arrière-plan (ordre `exit`) ; la vue l'exécute puis acquitte. */
+    val exitRequested: Boolean = false,
+    /** Un ordre `show` veut afficher l'application alors qu'elle est en arrière-plan. */
+    val foregroundRequested: Boolean = false,
 ) {
     val currentPage: Page?
         get() = pages.getOrNull(pageIndex)
@@ -59,6 +73,14 @@ data class AppState(
     /** Tuile en mode réglage, s'il y en a une. */
     val adjustTile: Tile?
         get() = adjust?.let { a -> findTile(a.tileId) }
+
+    /** État signalé à Jeedom (`POST ?action=state`). */
+    val tvState: TvState
+        get() = TvState(
+            visible = uiVisible,
+            screenOn = screenOn,
+            page = if (screen == Screen.Pages) currentPage?.id else null,
+        )
 
     fun findTile(id: String): Tile? =
         pages.asSequence().flatMap { it.tiles }.firstOrNull { it.id == id }

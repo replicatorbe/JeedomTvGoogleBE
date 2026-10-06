@@ -95,6 +95,15 @@ class AppController(
         updateChangesLoop()
     }
 
+    /** La TV allume ou éteint son écran (sortie ou entrée en veille). */
+    fun onScreenChanged(on: Boolean): Unit = TODO("MVP 3")
+
+    /** Rallumage de l'écran ou retour du réseau : la boucle des changements repart aussitôt. */
+    fun onNetworkMaybeRestored(): Unit = TODO("MVP 3")
+
+    /** La vue a mis l'application en arrière-plan suite à [AppState.exitRequested]. */
+    fun onExitHandled(): Unit = TODO("MVP 3")
+
     // --- Connexion ---------------------------------------------------------------------------
 
     /** Annule le travail en cours puis lance [block] : une seule connexion à la fois. */

@@ -11,6 +11,8 @@ import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
 import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
+import be.jeedomtv.model.TvCommand
+import be.jeedomtv.model.TvState
 import be.jeedomtv.model.driver.JeedomDriver
 import be.jeedomtv.model.driver.JeedomDriverFactory
 import kotlinx.coroutines.channels.Channel
@@ -31,7 +33,7 @@ class FakeSettings(var stored: JeedomConfig? = null) : SettingsRepository {
 data class ExecCall(val tile: String, val action: TileAction, val value: Double? = null)
 
 /**
- * Fabrique et pilote factices réunis : le comportement ([onPing], [onLayout], [onExec]) et les
+ * Fabrique et pilote factices réunis : le comportement ([onPing], [onLayout], [onExec], [onState]) et les
  * appels consignés sont partagés par tous les pilotes créés.
  *
  * `changes` suspend jusqu'à ce que le test fournisse une réponse par [pushChanges] ou une erreur
@@ -48,6 +50,10 @@ class FakeDriverFactory(
     var layoutCount = 0
     val execCalls = mutableListOf<ExecCall>()
     val changesCalls = mutableListOf<String?>()
+
+    /** États signalés à Jeedom, dans l'ordre. */
+    val states = mutableListOf<TvState>()
+    var onState: suspend (TvState) -> Unit = {}
     private val changesResults = Channel<Result<Changes>>(Channel.UNLIMITED)
 
     fun pushChanges(changes: Changes) {
@@ -81,12 +87,21 @@ class FakeDriverFactory(
                 changesCalls += since
                 return changesResults.receive().getOrThrow()
             }
+
+            override suspend fun state(state: TvState) {
+                states += state
+                onState(state)
+            }
         }
     }
 }
 
 fun changes(since: String, revision: String = "9f2c1a", vararg values: Pair<String, String?>) =
     Changes(since, revision, values.map { (tile, value) -> TileChange(tile, value) })
+
+/** Réponse de `changes` sans changement de valeur, avec des ordres pour la TV. */
+fun commands(since: String, vararg commands: TvCommand, revision: String = "9f2c1a") =
+    Changes(since, revision, emptyList(), commands.toList())
 
 /** Les tuiles de l'exemple du contrat (docs/api.md), sur une page « Salon ». */
 fun contractTiles() = listOf(

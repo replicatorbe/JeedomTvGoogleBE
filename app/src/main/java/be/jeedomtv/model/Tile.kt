@@ -73,12 +73,36 @@ data class Tile(
 /** Nouvelle valeur d'une tuile, reçue par `changes`. */
 data class TileChange(val tile: String, val value: String?)
 
-/** Réponse de `changes` : curseur suivant, révision actuelle et valeurs modifiées. */
+/** Réponse de `changes` : curseur suivant, révision actuelle, valeurs modifiées et ordres pour la TV. */
 data class Changes(
     /** Curseur opaque à renvoyer tel quel au prochain appel. */
     val since: String,
     val revision: String?,
     val changes: List<TileChange>,
+    val commands: List<TvCommand> = emptyList(),
+)
+
+/** Ordre de Jeedom pour la TV (« Commandes Jeedom → TV » du contrat). */
+sealed interface TvCommand {
+    /** Entier croissant par TV ; un id déjà traité est ignoré. Null si le plugin ne l'a pas fourni. */
+    val id: Long?
+
+    /** Affiche la page [page] ; retour à l'écran précédent après [durationSec] s (0 = sans retour). */
+    data class Show(override val id: Long?, val page: String, val durationSec: Int = 0) : TvCommand
+
+    /** Bandeau d'environ 8 s si l'application est visible. */
+    data class Notify(override val id: Long?, val title: String, val message: String) : TvCommand
+
+    /** Passe l'application en arrière-plan. */
+    data class Exit(override val id: Long?) : TvCommand
+}
+
+/** État de la TV signalé à Jeedom par `POST ?action=state`. */
+data class TvState(
+    val visible: Boolean,
+    val screenOn: Boolean,
+    /** Id de la page affichée ; null hors écran des pages. */
+    val page: String?,
 )
 
 /** Réponse de `ping`. */
