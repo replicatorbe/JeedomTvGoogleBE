@@ -106,6 +106,8 @@ class JeedomHttpDriver internal constructor(
         })
     }
 
+    override suspend fun image(id: String): ByteArray = TODO("Images")
+
     // --- HTTP -----------------------------------------------------------------------------------
 
     private suspend fun get(action: String): String = call(action, client)

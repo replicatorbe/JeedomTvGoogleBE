@@ -29,6 +29,10 @@ data class PendingAction(
 data class Banner(
     val title: String,
     val message: String,
+    /** Identifiant de l'image jointe (`GET ?action=image`) ; null sans image. */
+    val image: String? = null,
+    /** Octets de l'image, une fois téléchargée (décodée par la vue) ; null tant qu'elle ne l'est pas. */
+    val imageBytes: ByteArray? = null,
 )
 
 /**
@@ -74,6 +78,10 @@ data class Question(
     val status: QuestionStatus = QuestionStatus.Choosing,
     /** Affichée en superposition, par-dessus une autre application (sinon dans l'application). */
     val inOverlay: Boolean = false,
+    /** Identifiant de l'image jointe (photo du portier…) ; null sans image. */
+    val image: String? = null,
+    /** Octets de l'image, une fois téléchargée (décodée par la vue) ; null tant qu'elle ne l'est pas. */
+    val imageBytes: ByteArray? = null,
 )
 
 /** État complet de l'application : la seule chose que les vues observent. */

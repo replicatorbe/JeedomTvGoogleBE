@@ -51,6 +51,10 @@ class FakeDriverFactory(
     val execCalls = mutableListOf<ExecCall>()
     val changesCalls = mutableListOf<String?>()
 
+    /** Images demandées, dans l'ordre ; [onImage] fournit les octets (ou lève, ou suspend). */
+    val images = mutableListOf<String>()
+    var onImage: suspend (String) -> ByteArray = { it.toByteArray() }
+
     /** Réponses envoyées (jeton, réponse), dans l'ordre. */
     val answers = mutableListOf<Pair<String, String>>()
     var onAnswer: suspend (String, String) -> Unit = { _, _ -> }
@@ -90,6 +94,11 @@ class FakeDriverFactory(
             override suspend fun changes(since: String?): Changes {
                 changesCalls += since
                 return changesResults.receive().getOrThrow()
+            }
+
+            override suspend fun image(id: String): ByteArray {
+                images += id
+                return onImage(id)
             }
 
             override suspend fun answer(ask: String, answer: String) {

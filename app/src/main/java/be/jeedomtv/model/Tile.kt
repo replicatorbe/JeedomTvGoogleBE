@@ -91,7 +91,13 @@ sealed interface TvCommand {
     data class Show(override val id: Long?, val page: String, val durationSec: Int = 0) : TvCommand
 
     /** Bandeau d'environ 8 s si l'application est visible. */
-    data class Notify(override val id: Long?, val title: String, val message: String) : TvCommand
+    data class Notify(
+        override val id: Long?,
+        val title: String,
+        val message: String,
+        /** Identifiant d'une image jointe ; null sans image. */
+        val image: String? = null,
+    ) : TvCommand
 
     /** Passe l'application en arrière-plan. */
     data class Exit(override val id: Long?) : TvCommand
@@ -107,6 +113,8 @@ sealed interface TvCommand {
         val message: String,
         val answers: List<String>,
         val timeoutSec: Int,
+        /** Identifiant d'une image jointe (photo du portier…) ; null sans image. */
+        val image: String? = null,
     ) : TvCommand
 }
 

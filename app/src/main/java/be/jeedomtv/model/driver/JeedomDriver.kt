@@ -36,6 +36,12 @@ interface JeedomDriver {
      * 404 (question expirée ou déjà répondue) ou 422 (réponse hors liste).
      */
     suspend fun answer(ask: String, answer: String)
+
+    /**
+     * Image jointe à un ordre (`GET ?action=image`), JPEG ou PNG, 5 Mo au plus.
+     * Lève [JeedomException] (404 : inconnue ou expirée ; trop grande).
+     */
+    suspend fun image(id: String): ByteArray
 }
 
 fun interface JeedomDriverFactory {
