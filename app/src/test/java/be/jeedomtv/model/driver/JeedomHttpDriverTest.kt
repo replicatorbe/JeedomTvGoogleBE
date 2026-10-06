@@ -6,6 +6,8 @@ import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
 import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
+import be.jeedomtv.model.TvCommand
+import be.jeedomtv.model.TvState
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -184,6 +186,72 @@ class JeedomHttpDriverTest {
         // Délai de lecture du client : 300 ms ; la réponse arrive après 600 ms.
         server.enqueue(json("""{"since": 2, "revision": "r", "changes": []}""").setBodyDelay(600, TimeUnit.MILLISECONDS))
         assertEquals("2", driver(readTimeoutMs = 300).changes("1").since)
+    }
+
+    @Test
+    fun `changes avec les ordres du contrat, types inconnus ignores`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"since": 1791364425.381, "revision": "9f2c1a",
+                 "changes": [{"tile": "t1", "value": "0"}],
+                 "commands": [
+                   {"id": 17, "type": "show", "page": "p2", "duration": 30},
+                   {"id": 18, "type": "show", "page": "p1"},
+                   {"id": 19, "type": "notify", "title": "", "message": "Lave-linge terminé"},
+                   {"id": 20, "type": "exit"},
+                   {"id": 21, "type": "reboot"},
+                   {"id": 22, "type": "show"},
+                   {"type": "notify", "message": "Sans id", "futur": true}
+                 ]}
+                """.trimIndent()
+            )
+        )
+        val result = driver().changes("1")
+        assertEquals(listOf(TileChange("t1", "0")), result.changes)
+        assertEquals(
+            listOf(
+                TvCommand.Show(17, "p2", 30),
+                TvCommand.Show(18, "p1", 0),
+                TvCommand.Notify(19, "", "Lave-linge terminé"),
+                TvCommand.Exit(20),
+                TvCommand.Notify(null, "", "Sans id"),
+            ),
+            result.commands,
+        )
+    }
+
+    @Test
+    fun `changes sans champ commands`() = runBlocking {
+        server.enqueue(json("""{"since": 3, "revision": "r", "changes": []}"""))
+        assertTrue(driver().changes(null).commands.isEmpty())
+    }
+
+    @Test
+    fun `state envoie le corps du contrat`() = runBlocking {
+        server.enqueue(json("""{"ok": true}"""))
+        server.enqueue(json("""{"ok": true}"""))
+        val d = driver()
+        d.state(TvState(visible = true, screenOn = true, page = "p2"))
+        d.state(TvState(visible = false, screenOn = false, page = null))
+
+        val first = server.takeRequest()
+        assertEquals("POST", first.method)
+        assertEquals("state", first.requestUrl!!.queryParameter("action"))
+        assertEquals("cle-de-la-tv", first.getHeader("X-JEETVBE-KEY"))
+        assertEquals("""{"visible":true,"screenOn":true,"page":"p2"}""", first.body.readUtf8())
+        assertEquals(
+            "page null explicite hors écran des pages",
+            """{"visible":false,"screenOn":false,"page":null}""",
+            server.takeRequest().body.readUtf8(),
+        )
+    }
+
+    @Test
+    fun `state en erreur leve JeedomException`() {
+        server.enqueue(json("""{"error": "JSON invalide"}""", code = 400))
+        val e = assertThrowsSuspend<JeedomException> { driver().state(TvState(true, true, null)) }
+        assertEquals("JSON invalide", e.message)
     }
 
     // --- Erreurs -------------------------------------------------------------------------------

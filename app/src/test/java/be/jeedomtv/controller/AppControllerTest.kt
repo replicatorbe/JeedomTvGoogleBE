@@ -26,7 +26,6 @@ import be.jeedomtv.model.driver.JeedomException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -39,22 +38,37 @@ class AppControllerTest {
 
     private val config = JeedomConfig(host = "192.168.1.10", key = "cle")
 
+    /**
+     * Le contrôleur vit dans le backgroundScope du TestScope : sa boucle des changements tourne
+     * sans fin (comme dans l'application), le test n'a pas à l'attendre.
+     */
     private fun TestScope.controller(
         settings: FakeSettings = FakeSettings(),
         factory: FakeDriverFactory = FakeDriverFactory(),
-        scope: CoroutineScope = this,
-    ) = AppController(AppModel(), settings, factory, scope)
+        scope: CoroutineScope = backgroundScope,
+        initial: AppState = AppState(),
+    ) = AppController(AppModel(initial), settings, factory, scope)
 
     /**
-     * Contrôleur connecté, sur l'écran des pages. Par défaut l'application n'est pas visible :
-     * la boucle des changements ne tourne pas. Les tests de la boucle passent le backgroundScope.
+     * advanceUntilIdle ignore les tâches du backgroundScope : on avance l'horloge virtuelle d'une
+     * minute (minuteurs des messages, du retour visuel, anti-rebond de l'état).
+     */
+    private fun TestScope.idle() {
+        advanceTimeBy(60_000)
+        runCurrent()
+    }
+
+    /**
+     * Contrôleur connecté, sur l'écran des pages. Par défaut l'application n'est pas visible ;
+     * la boucle des changements tourne quand même (elle attend une réponse du test).
      */
     private fun TestScope.connected(
         factory: FakeDriverFactory = FakeDriverFactory(),
         settings: FakeSettings = FakeSettings(stored = config),
-        scope: CoroutineScope = this,
+        scope: CoroutineScope = backgroundScope,
+        visible: Boolean = false,
     ): AppController {
-        val c = controller(settings, factory, scope)
+        val c = controller(settings, factory, scope, AppState(uiVisible = visible))
         c.start()
         // runCurrent et non advanceUntilIdle : ce dernier ignore les tâches du backgroundScope.
         runCurrent()
@@ -74,7 +88,7 @@ class AppControllerTest {
         val c = controller(factory = factory)
         c.start()
         assertEquals(Screen.Loading, c.state.value.screen)
-        advanceUntilIdle()
+        idle()
         assertEquals(Screen.Setup, c.state.value.screen)
         assertTrue(factory.created.isEmpty())
     }
@@ -103,7 +117,7 @@ class AppControllerTest {
         val factory = FakeDriverFactory().apply { onPing = { throw AuthenticationException("Clé refusée par Jeedom") } }
         val c = controller(settings, factory)
         c.submitSetup(config)
-        advanceUntilIdle()
+        idle()
         val state = c.state.value
         assertEquals(Screen.Setup, state.screen)
         assertEquals("Clé refusée par Jeedom", state.error)
@@ -118,7 +132,7 @@ class AppControllerTest {
         val factory = FakeDriverFactory(onLayout = { throw JeedomException("Erreur de Jeedom (HTTP 500)") })
         val c = controller(settings, factory)
         c.submitSetup(config)
-        advanceUntilIdle()
+        idle()
         assertEquals(Screen.Setup, c.state.value.screen)
         assertEquals("Erreur de Jeedom (HTTP 500)", c.state.value.error)
         assertEquals(listOf(config), settings.saved)
@@ -129,7 +143,7 @@ class AppControllerTest {
         val factory = FakeDriverFactory().apply { onPing = { throw IllegalStateException("boum") } }
         val c = controller(factory = factory)
         c.submitSetup(config)
-        advanceUntilIdle()
+        idle()
         assertEquals("Connexion à Jeedom impossible", c.state.value.error)
     }
 
@@ -146,7 +160,7 @@ class AppControllerTest {
     fun `Retour sur Setup sans connexion n'est pas consomme`() = runTest {
         val c = controller()
         c.start()
-        advanceUntilIdle()
+        idle()
         assertFalse(c.onCommand(Back))
         assertFalse(c.onCommand(Ok))
     }
@@ -204,7 +218,7 @@ class AppControllerTest {
         val factory = FakeDriverFactory()
         val c = connected(factory)
         assertTrue(c.onCommand(Digit(1)))
-        advanceUntilIdle()
+        idle()
         assertEquals(listOf(ExecCall("t1", TileAction.Toggle)), factory.execCalls)
 
         c.press(Digit(4))
@@ -221,7 +235,7 @@ class AppControllerTest {
         c.press(Digit(7), Digit(0))
         assertEquals(4, c.state.value.focusedIndex)
         c.press(Ok)
-        advanceUntilIdle()
+        idle()
         assertTrue(factory.execCalls.isEmpty())
         assertNull(c.state.value.adjust)
     }
@@ -234,7 +248,7 @@ class AppControllerTest {
         val c = connected(factory)
         c.press(Ok)
         assertEquals("mise à jour optimiste immédiate", "0", c.tile("t1").value)
-        advanceUntilIdle()
+        idle()
         assertEquals("0", c.tile("t1").value)
         assertEquals(listOf(ExecCall("t1", TileAction.Toggle)), factory.execCalls)
     }
@@ -246,7 +260,7 @@ class AppControllerTest {
         val c = connected(factory)
         c.press(Ok)
         assertEquals("0", c.tile("t1").value)
-        advanceUntilIdle()
+        idle()
         assertEquals("1", c.tile("t1").value)
     }
 
@@ -254,7 +268,7 @@ class AppControllerTest {
     fun `toggle sans valeur en retour garde la valeur optimiste`() = runTest {
         val c = connected(FakeDriverFactory().apply { onExec = { null } })
         c.press(ChannelUp, Ok)
-        advanceUntilIdle()
+        idle()
         assertEquals("1", c.tile("k1").value)
     }
 
@@ -295,7 +309,7 @@ class AppControllerTest {
 
         c.press(Ok)
         assertNull(c.state.value.adjust)
-        advanceUntilIdle()
+        idle()
         assertEquals(listOf(ExecCall("t4", TileAction.Set, 24.5)), factory.execCalls)
         assertEquals("24.5", c.tile("t4").value)
     }
@@ -317,7 +331,7 @@ class AppControllerTest {
         assertTrue(c.onCommand(Back))
         assertNull(c.state.value.adjust)
         assertEquals(Screen.Pages, c.state.value.screen)
-        advanceUntilIdle()
+        idle()
         assertTrue(factory.execCalls.isEmpty())
         assertEquals("20.5", c.tile("t4").value)
     }
@@ -333,7 +347,7 @@ class AppControllerTest {
         c.press(ChannelUp, ChannelDown)
         assertEquals("CH+/CH- ne quittent pas le réglage", Adjust("t2", 80.0), c.state.value.adjust)
         c.press(Ok)
-        advanceUntilIdle()
+        idle()
         assertEquals(
             listOf(ExecCall("t2", TileAction.Up), ExecCall("t2", TileAction.Down), ExecCall("t2", TileAction.Set, 80.0)),
             factory.execCalls,
@@ -346,7 +360,7 @@ class AppControllerTest {
         val factory = FakeDriverFactory()
         val c = connected(factory)
         c.press(Digit(4), ChannelUp, ChannelDown, Digit(1))
-        advanceUntilIdle()
+        idle()
         assertTrue(factory.execCalls.isEmpty())
         assertEquals(Adjust("t4", 20.5), c.state.value.adjust)
         assertEquals(0, c.state.value.pageIndex)
@@ -370,7 +384,7 @@ class AppControllerTest {
         assertEquals("OK envoie stop sans quitter", Adjust("t3", null), c.state.value.adjust)
         c.press(Back)
         assertNull(c.state.value.adjust)
-        advanceUntilIdle()
+        idle()
         assertEquals(
             listOf(ExecCall("t3", TileAction.Up), ExecCall("t3", TileAction.Down), ExecCall("t3", TileAction.Stop)),
             factory.execCalls,
@@ -390,7 +404,7 @@ class AppControllerTest {
         assertEquals(0, c.state.value.pageIndex)
         assertTrue(c.onCommand(Back))
         assertNull(c.state.value.confirm)
-        advanceUntilIdle()
+        idle()
         assertTrue(factory.execCalls.isEmpty())
 
         c.press(Ok)
@@ -398,7 +412,7 @@ class AppControllerTest {
         c.press(Ok)
         assertNull(c.state.value.confirm)
         assertEquals("retour visuel", "t6", c.state.value.flashTileId)
-        advanceUntilIdle()
+        idle()
         assertEquals(listOf(ExecCall("t6", TileAction.Run)), factory.execCalls)
         assertNull(c.state.value.flashTileId)
     }
@@ -410,7 +424,7 @@ class AppControllerTest {
         val c = connected(factory)
         c.press(Ok)
         assertNull(c.state.value.confirm)
-        advanceUntilIdle()
+        idle()
         assertEquals(listOf(ExecCall("sc", TileAction.Run)), factory.execCalls)
     }
 
@@ -431,7 +445,7 @@ class AppControllerTest {
         assertNull(c.state.value.adjust)
         assertEquals(PendingAction("c", TileAction.Set, 60.0, "Régler « Chaudière » sur 60 %"), c.state.value.confirm)
         c.press(Ok)
-        advanceUntilIdle()
+        idle()
         assertEquals(listOf(ExecCall("v", TileAction.Up), ExecCall("c", TileAction.Set, 60.0)), factory.execCalls)
     }
 
@@ -445,7 +459,7 @@ class AppControllerTest {
         assertEquals("0", c.tile("al").value)
         c.press(Ok)
         assertEquals("1", c.tile("al").value)
-        advanceUntilIdle()
+        idle()
         assertEquals(listOf(ExecCall("al", TileAction.Toggle)), factory.execCalls)
     }
 
@@ -456,34 +470,45 @@ class AppControllerTest {
         c.press(Digit(3), Up)
         advanceTimeBy(100)
         assertEquals("Action non permise", c.state.value.notice)
-        advanceUntilIdle()
+        idle()
         assertNull(c.state.value.notice)
     }
 
     // --- Changements en direct -----------------------------------------------------------------
 
     @Test
-    fun `la boucle ne tourne que sur les pages et application visible`() = runTest {
+    fun `la boucle tourne des la connexion, application invisible, et sur Setup`() = runTest {
         val factory = FakeDriverFactory()
-        val c = connected(factory, scope = backgroundScope)
-        runCurrent()
-        assertTrue("invisible : pas de boucle", factory.changesCalls.isEmpty())
+        val c = connected(factory)
+        assertFalse(c.state.value.uiVisible)
+        assertEquals(listOf<String?>(null), factory.changesCalls)
 
-        c.onUiVisibilityChanged(true)
-        c.onUiVisibilityChanged(true)
-        runCurrent()
-        assertEquals("une seule boucle", listOf<String?>(null), factory.changesCalls)
-
-        c.onUiVisibilityChanged(false)
+        c.press(Menu)
         factory.pushChanges(changes("100", "9f2c1a", "t1" to "0"))
         runCurrent()
-        assertEquals("boucle arrêtée : rien appliqué", "1", c.tile("t1").value)
+        assertEquals(Screen.Setup, c.state.value.screen)
+        assertEquals("0", c.tile("t1").value)
+        assertEquals(listOf(null, "100"), factory.changesCalls)
+    }
+
+    @Test
+    fun `une seule boucle a la fois`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = connected(factory)
+        c.onUiVisibilityChanged(true)
+        c.onUiVisibilityChanged(false)
+        c.onUiVisibilityChanged(true)
+        runCurrent()
+        assertEquals(listOf<String?>(null), factory.changesCalls)
+        factory.pushChanges(changes("1"))
+        runCurrent()
+        assertEquals(listOf(null, "1"), factory.changesCalls)
     }
 
     @Test
     fun `applique les changements et relance avec le curseur`() = runTest {
         val factory = FakeDriverFactory()
-        val c = connected(factory, scope = backgroundScope)
+        val c = connected(factory)
         c.onUiVisibilityChanged(true)
         factory.pushChanges(changes("100"))
         factory.pushChanges(changes("101", "9f2c1a", "t1" to "0", "t4" to "21", "k2" to "1"))
@@ -500,7 +525,7 @@ class AppControllerTest {
     fun `nouvelle revision - rechargement du layout`() = runTest {
         var layout = contractLayout()
         val factory = FakeDriverFactory(onLayout = { layout })
-        val c = connected(factory, scope = backgroundScope)
+        val c = connected(factory)
         c.press(ChannelUp, Right)
         c.onUiVisibilityChanged(true)
         runCurrent()
@@ -523,7 +548,7 @@ class AppControllerTest {
     @Test
     fun `meme revision - pas de rechargement`() = runTest {
         val factory = FakeDriverFactory()
-        val c = connected(factory, scope = backgroundScope)
+        val c = connected(factory)
         c.onUiVisibilityChanged(true)
         factory.pushChanges(changes("1", "9f2c1a"))
         runCurrent()
@@ -533,7 +558,7 @@ class AppControllerTest {
     @Test
     fun `erreur reseau - hors ligne, 3 s, layout recharge, reprise sans curseur`() = runTest {
         val factory = FakeDriverFactory()
-        val c = connected(factory, scope = backgroundScope)
+        val c = connected(factory)
         c.onUiVisibilityChanged(true)
         factory.pushChanges(changes("100"))
         factory.failChanges(JeedomException("Jeedom injoignable (192.168.1.10)"))
@@ -557,7 +582,7 @@ class AppControllerTest {
     fun `layout injoignable pendant la reprise - on reessaie`() = runTest {
         var down = false
         val factory = FakeDriverFactory(onLayout = { if (down) throw JeedomException("Jeedom injoignable") else contractLayout() })
-        val c = connected(factory, scope = backgroundScope)
+        val c = connected(factory)
         c.onUiVisibilityChanged(true)
         runCurrent()
         down = true
@@ -572,7 +597,7 @@ class AppControllerTest {
     @Test
     fun `cle refusee pendant la boucle - retour a Setup`() = runTest {
         val factory = FakeDriverFactory()
-        val c = connected(factory, scope = backgroundScope)
+        val c = connected(factory)
         c.onUiVisibilityChanged(true)
         factory.failChanges(AuthenticationException("Clé refusée par Jeedom"))
         runCurrent()
@@ -581,25 +606,9 @@ class AppControllerTest {
     }
 
     @Test
-    fun `Menu arrete la boucle, Retour la relance`() = runTest {
-        val factory = FakeDriverFactory()
-        val c = connected(factory, scope = backgroundScope)
-        c.onUiVisibilityChanged(true)
-        runCurrent()
-        c.press(Menu)
-        factory.pushChanges(changes("1", "9f2c1a", "t1" to "0"))
-        runCurrent()
-        assertEquals("1", c.tile("t1").value)
-        c.press(Back)
-        runCurrent()
-        assertEquals("0", c.tile("t1").value)
-        assertEquals("nouvelle boucle, sans curseur", listOf(null, null, "1"), factory.changesCalls)
-    }
-
-    @Test
     fun `un changement pendant un reglage met a jour la valeur actuelle, pas la valeur en attente`() = runTest {
         val factory = FakeDriverFactory()
-        val c = connected(factory, scope = backgroundScope)
+        val c = connected(factory)
         c.onUiVisibilityChanged(true)
         c.press(Digit(4), Up)
         factory.pushChanges(changes("1", "9f2c1a", "t4" to "19"))

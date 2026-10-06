@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
 import be.jeedomtv.BuildConfig
 import be.jeedomtv.JeedomTvApp
 import be.jeedomtv.controller.AppController
@@ -12,6 +13,9 @@ import be.jeedomtv.controller.RemoteCommand
 import be.jeedomtv.controller.RemoteKeyMapper
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Screen
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * Vue principale : affiche l'état du Modèle et transmet au contrôleur les touches de la
@@ -32,6 +36,8 @@ class MainActivity : ComponentActivity() {
         // La connexion à Jeedom est lancée par l'application ; en debug, adb peut la remplacer.
         // Recréation de l'activité : la configuration de debug a déjà été appliquée.
         if (savedInstanceState == null) debugConfigFromIntent(intent)?.let { controller.submitSetup(it) }
+
+        observeExitRequests()
 
         setContent {
             JeedomTvTheme {
@@ -79,6 +85,21 @@ class MainActivity : ComponentActivity() {
         // Non géré par le contrôleur : comportement Android normal
         // (Retour quitte l'app depuis les pages, focus Compose dans le formulaire).
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Ordre `exit` de Jeedom : on passe en arrière-plan sans fermer l'application. */
+    private fun observeExitRequests() {
+        lifecycleScope.launch {
+            controller.state
+                .map { it.exitRequested }
+                .distinctUntilChanged()
+                .collect { requested ->
+                    if (requested) {
+                        moveTaskToBack(true)
+                        controller.onExitHandled()
+                    }
+                }
+        }
     }
 
     /**

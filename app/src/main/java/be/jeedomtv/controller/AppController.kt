@@ -3,6 +3,7 @@ package be.jeedomtv.controller
 import be.jeedomtv.model.Adjust
 import be.jeedomtv.model.AppModel
 import be.jeedomtv.model.AppState
+import be.jeedomtv.model.Banner
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.PendingAction
@@ -12,6 +13,8 @@ import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
 import be.jeedomtv.model.TileType
+import be.jeedomtv.model.TvCommand
+import be.jeedomtv.model.TvState
 import be.jeedomtv.model.driver.AuthenticationException
 import be.jeedomtv.model.driver.JeedomDriver
 import be.jeedomtv.model.driver.JeedomDriverFactory
@@ -28,8 +31,11 @@ import kotlin.math.abs
 import kotlin.math.roundToLong
 
 /**
- * Le Contrôleur du MVC : interprète les commandes de la télécommande, pilote Jeedom
- * et met à jour le [AppModel]. Il ne touche jamais à l'interface Android.
+ * Le Contrôleur du MVC : interprète les commandes de la télécommande et les ordres de Jeedom,
+ * pilote Jeedom et met à jour le [AppModel]. Il ne touche jamais à l'interface Android.
+ *
+ * Il vit dans l'Application (comme le service au premier plan) : la boucle des changements
+ * tourne dès qu'une configuration existe, application visible ou non, écran allumé ou non.
  *
  * Tout son état interne est confiné au thread principal (celui de [scope]).
  */
@@ -41,8 +47,11 @@ class AppController(
 ) {
     val state: StateFlow<AppState> = model.state
 
-    /** Pilote de la dernière connexion réussie (null tant qu'aucune connexion n'a abouti). */
+    /** Pilote de la configuration en service (null tant qu'aucune configuration n'est connue). */
     private var driver: JeedomDriver? = null
+
+    /** Clé refusée alors que l'application était visible : la boucle attend une nouvelle saisie. */
+    private var authBlocked = false
 
     /** Chargement ou connexion en cours ; annulé si une nouvelle connexion est demandée. */
     private var connectJob: Job? = null
@@ -56,10 +65,26 @@ class AppController(
     /** Efface le retour visuel d'une tuile. */
     private var flashTimer: Job? = null
 
+    /** Efface le bandeau `notify`. */
+    private var bannerTimer: Job? = null
+
+    /** Envoi différé (anti-rebond) de l'état de la TV à Jeedom. */
+    private var stateTimer: Job? = null
+
+    /** Dernier état programmé pour l'envoi : un état identique n'est pas renvoyé. */
+    private var lastScheduledState: TvState? = null
+
+    /** Ids des ordres déjà traités (les plus récents seulement). */
+    private val handledCommandIds = LinkedHashSet<Long>()
+
+    /** Écran à retrouver après un `show` temporaire, et le minuteur qui l'y ramène. */
+    private var returnTarget: ReturnTarget? = null
+    private var returnTimer: Job? = null
+
     /** Au lancement : configuration enregistrée → connexion, sinon écran de configuration. */
     fun start() {
         launchExclusive {
-            model.update { it.copy(screen = Screen.Loading, error = null) }
+            update { it.copy(screen = Screen.Loading, error = null) }
             val config = try {
                 settings.load()
             } catch (e: CancellationException) {
@@ -68,19 +93,21 @@ class AppController(
                 null // Configuration illisible : on repart du formulaire.
             }
             if (config == null) {
-                model.update { it.copy(screen = Screen.Setup) }
+                update { it.copy(screen = Screen.Setup) }
             } else {
-                connectNow(config)
+                connectNow(config, userInitiated = false)
             }
         }
     }
 
     fun submitSetup(config: JeedomConfig) {
-        launchExclusive { connectNow(config) }
+        launchExclusive { connectNow(config, userInitiated = true) }
     }
 
     /** Retourne true si la commande a été traitée (l'activité consomme alors la touche). */
     fun onCommand(command: RemoteCommand): Boolean {
+        // L'utilisateur a repris la main : un affichage temporaire devient définitif.
+        cancelAutoReturn()
         val current = state.value
         return when (current.screen) {
             Screen.Pages -> onPagesCommand(command, current)
@@ -91,34 +118,50 @@ class AppController(
 
     /** L'écran de l'application devient visible ou passe derrière une autre application. */
     fun onUiVisibilityChanged(visible: Boolean) {
-        model.update { it.copy(uiVisible = visible) }
-        updateChangesLoop()
+        update { it.copy(uiVisible = visible, foregroundRequested = it.foregroundRequested && !visible) }
     }
 
     /** La TV allume ou éteint son écran (sortie ou entrée en veille). */
-    fun onScreenChanged(on: Boolean): Unit = TODO("MVP 3")
+    fun onScreenChanged(on: Boolean) {
+        update { it.copy(screenOn = on) }
+        // Au réveil, la connexion d'avant la veille est probablement morte.
+        if (on) onNetworkMaybeRestored()
+    }
 
-    /** Rallumage de l'écran ou retour du réseau : la boucle des changements repart aussitôt. */
-    fun onNetworkMaybeRestored(): Unit = TODO("MVP 3")
+    /**
+     * Rallumage de l'écran ou retour du réseau : la boucle des changements repart aussitôt,
+     * sans attendre l'échec d'une attente longue sur une connexion morte.
+     */
+    fun onNetworkMaybeRestored() {
+        if (driver != null && !authBlocked && connectJob?.isActive != true) startChangesLoop(reloadFirst = true)
+    }
 
     /** La vue a mis l'application en arrière-plan suite à [AppState.exitRequested]. */
-    fun onExitHandled(): Unit = TODO("MVP 3")
+    fun onExitHandled() {
+        update { it.copy(exitRequested = false) }
+    }
 
     // --- Connexion ---------------------------------------------------------------------------
 
     /** Annule le travail en cours puis lance [block] : une seule connexion à la fois. */
     private fun launchExclusive(block: suspend CoroutineScope.() -> Unit) {
         stopChangesLoop()
+        cancelAutoReturn()
         connectJob?.cancel()
         connectJob = scope.launch(block = block)
     }
 
-    private suspend fun connectNow(config: JeedomConfig) {
-        model.update {
+    /**
+     * [userInitiated] : configuration saisie à l'écran ; un échec y ramène avec le message.
+     * Sinon (configuration enregistrée, typiquement au démarrage de la TV), un échec ne fait
+     * qu'afficher « hors ligne » et la boucle réessaie, sauf clé refusée sous les yeux de l'utilisateur.
+     */
+    private suspend fun connectNow(config: JeedomConfig, userInitiated: Boolean) {
+        update {
             it.copy(screen = Screen.Loading, config = config, error = null, adjust = null, confirm = null)
         }
+        val newDriver = driverFactory.create(config)
         try {
-            val newDriver = driverFactory.create(config)
             val ping = newDriver.ping()
             currentCoroutineContext().ensureActive()
             // La configuration n'est enregistrée qu'après un ping réussi.
@@ -127,17 +170,27 @@ class AppController(
             // Une connexion annulée entre-temps ne doit pas écraser l'état.
             currentCoroutineContext().ensureActive()
             driver = newDriver
-            model.update {
+            authBlocked = false
+            update {
                 it.copy(tvName = ping.tvName, offline = false, error = null).withLayout(layout)
                     .copy(screen = Screen.Pages)
             }
-            updateChangesLoop()
+            startChangesLoop(reloadFirst = false)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: JeedomException) {
-            showSetupError(e.message ?: GENERIC_ERROR)
         } catch (e: Exception) {
-            showSetupError(GENERIC_ERROR)
+            val message = (e as? JeedomException)?.message ?: GENERIC_ERROR
+            if (userInitiated || (e is AuthenticationException && state.value.uiVisible)) {
+                showSetupError(message)
+                // L'ancienne configuration, s'il y en a une, reste en service.
+                ensureChangesLoop()
+            } else {
+                // Jeedom injoignable au démarrage : la boucle réessaie et chargera les pages.
+                driver = newDriver
+                authBlocked = false
+                update { it.copy(screen = Screen.Pages, offline = true, error = null) }
+                startChangesLoop(reloadFirst = false)
+            }
         }
     }
 
@@ -152,22 +205,21 @@ class AppController(
     }
 
     private fun showSetupError(message: String) {
-        stopChangesLoop()
-        model.update { it.copy(screen = Screen.Setup, error = message, adjust = null, confirm = null) }
+        update { it.copy(screen = Screen.Setup, error = message, adjust = null, confirm = null) }
     }
 
     // --- Changements en direct ---------------------------------------------------------------
 
-    /** La boucle tourne tant que l'écran Pages est affiché ET l'application visible. */
-    private fun updateChangesLoop() {
-        val current = state.value
-        val target = driver
-        val shouldRun = current.screen == Screen.Pages && current.uiVisible && target != null
-        if (!shouldRun) {
-            stopChangesLoop()
-        } else if (changesJob?.isActive != true) {
-            changesJob = scope.launch { runChanges(target!!) }
-        }
+    private fun ensureChangesLoop() {
+        if (changesJob?.isActive != true) startChangesLoop(reloadFirst = false)
+    }
+
+    /** (Re)démarre la boucle ; une seule tourne à la fois. */
+    private fun startChangesLoop(reloadFirst: Boolean) {
+        stopChangesLoop()
+        val target = driver ?: return
+        if (authBlocked) return
+        changesJob = scope.launch { runChanges(target, reloadFirst) }
     }
 
     private fun stopChangesLoop() {
@@ -177,38 +229,50 @@ class AppController(
 
     /**
      * Attente longue des changements : applique les valeurs, recharge le layout si la révision
-     * change. Après une erreur : « hors ligne », pause, rechargement du layout, reprise sans curseur.
+     * change, exécute les ordres de Jeedom. Après une erreur : « hors ligne », pause,
+     * rechargement du layout, reprise sans curseur. L'écran ne repasse jamais par le chargement.
      */
-    private suspend fun runChanges(target: JeedomDriver) {
+    private suspend fun runChanges(target: JeedomDriver, reloadFirst: Boolean) {
         var since: String? = null
+        var reload = reloadFirst
         while (true) {
             try {
+                if (reload) {
+                    reload = false
+                    // Des changements ont pu être perdus : on repart d'un layout frais.
+                    try {
+                        applyLayout(target.layout())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Toujours injoignable : l'appel à changes échouera et réessaiera.
+                    }
+                }
+                val restarted = since == null
                 val result = target.changes(since)
                 currentCoroutineContext().ensureActive()
                 since = result.since
-                model.update { it.copy(offline = false).withChanges(result.changes) }
+                update { it.copy(offline = false).withChanges(result.changes) }
                 val revision = result.revision
                 if (revision != null && revision != state.value.revision) {
                     applyLayout(target.layout())
                 }
+                // Démarrage ou reconnexion : Jeedom ne connaît peut-être pas encore notre état.
+                if (restarted) resendState()
+                result.commands.forEach { applyCommand(it) }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: AuthenticationException) {
-                // Clé régénérée ou équipement désactivé dans Jeedom : il faut ressaisir la clé.
-                changesJob = null
-                showSetupError(e.message ?: GENERIC_ERROR)
-                return
             } catch (e: Exception) {
-                model.update { it.copy(offline = true) }
-                delay(RETRY_DELAY_MS)
-                // Des changements ont pu être perdus : on repart d'un layout frais.
-                try {
-                    applyLayout(target.layout())
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // Toujours injoignable : le prochain appel à changes échouera et réessaiera.
+                if (e is AuthenticationException && state.value.uiVisible) {
+                    // Clé régénérée ou équipement désactivé dans Jeedom : il faut ressaisir la clé.
+                    changesJob = null
+                    authBlocked = true
+                    showSetupError(e.message ?: GENERIC_ERROR)
+                    return
                 }
+                update { it.copy(offline = true) }
+                delay(RETRY_DELAY_MS)
+                reload = true
                 since = null
             }
         }
@@ -216,16 +280,157 @@ class AppController(
 
     private suspend fun applyLayout(layout: Layout) {
         currentCoroutineContext().ensureActive()
-        model.update { it.withLayout(layout) }
+        update { it.withLayout(layout) }
+    }
+
+    // --- Ordres de Jeedom --------------------------------------------------------------------
+
+    private fun applyCommand(command: TvCommand) {
+        val id = command.id
+        if (id != null) {
+            if (!handledCommandIds.add(id)) return // Déjà traité.
+            if (handledCommandIds.size > MAX_HANDLED_IDS) handledCommandIds.remove(handledCommandIds.first())
+        }
+        when (command) {
+            is TvCommand.Show -> show(command)
+            is TvCommand.Notify -> notify(command)
+            is TvCommand.Exit -> exit()
+        }
+    }
+
+    /**
+     * Affiche une page, en passant au premier plan si besoin. Avec une durée, retour ensuite à
+     * l'écran d'avant (ou à l'application d'avant), sauf si la télécommande a servi entre-temps.
+     */
+    private fun show(command: TvCommand.Show) {
+        val current = state.value
+        // Formulaire en cours de saisie, ou connexion en cours : on ne l'interrompt pas.
+        if (current.screen == Screen.Loading || (current.screen == Screen.Setup && current.uiVisible)) return
+        val index = current.pages.indexOfFirst { it.id == command.page }
+        if (index < 0) return
+        // Un affichage temporaire déjà en cours garde l'écran d'origine.
+        val previous = returnTarget ?: ReturnTarget(
+            screen = current.screen,
+            pageId = current.currentPage?.id,
+            focusedIndex = current.focusedIndex,
+            background = !current.uiVisible,
+        )
+        cancelAutoReturn()
+        val changesSomething = previous.background || previous.screen != Screen.Pages || previous.pageId != command.page
+        if (command.durationSec > 0 && changesSomething) {
+            returnTarget = previous
+            returnTimer = scope.launch {
+                delay(command.durationSec * 1000L)
+                returnTimer = null
+                returnTarget = null
+                restore(previous)
+            }
+        }
+        update {
+            it.copy(
+                screen = Screen.Pages,
+                pageIndex = index,
+                focusedIndex = 0,
+                adjust = null,
+                confirm = null,
+                error = null,
+                exitRequested = false,
+                foregroundRequested = it.foregroundRequested || !it.uiVisible,
+            )
+        }
+    }
+
+    /** Fin d'un affichage temporaire : écran d'avant, et retour en arrière-plan s'il y était. */
+    private fun restore(previous: ReturnTarget) {
+        update { s ->
+            val restored = when (previous.screen) {
+                Screen.Pages -> {
+                    val index = s.pages.indexOfFirst { it.id == previous.pageId }.takeIf { it >= 0 } ?: s.pageIndex
+                    val count = s.pages.getOrNull(index)?.tiles?.size ?: 0
+                    s.copy(
+                        screen = Screen.Pages,
+                        pageIndex = index,
+                        focusedIndex = previous.focusedIndex.coerceIn(0, (count - 1).coerceAtLeast(0)),
+                    )
+                }
+                Screen.Setup -> s.copy(screen = Screen.Setup)
+                Screen.Loading -> s
+            }
+            if (previous.background) {
+                restored.copy(exitRequested = s.uiVisible, foregroundRequested = false)
+            } else {
+                restored
+            }
+        }
+    }
+
+    private fun cancelAutoReturn() {
+        returnTimer?.cancel()
+        returnTimer = null
+        returnTarget = null
+    }
+
+    /**
+     * Bandeau de quelques secondes, seulement si quelqu'un regarde l'application, ou va la
+     * regarder : un `show` qui la ramène au premier plan peut précéder le message dans la même réponse.
+     */
+    private fun notify(command: TvCommand.Notify) {
+        if (!state.value.uiVisible && !state.value.foregroundRequested) return
+        update { it.copy(banner = Banner(command.title, command.message)) }
+        bannerTimer?.cancel()
+        bannerTimer = scope.launch {
+            delay(BANNER_DURATION_MS)
+            update { it.copy(banner = null) }
+        }
+    }
+
+    private fun exit() {
+        cancelAutoReturn()
+        // Déjà en arrière-plan : rien à quitter.
+        update {
+            it.copy(adjust = null, confirm = null, exitRequested = it.uiVisible, foregroundRequested = false)
+        }
+    }
+
+    // --- État signalé à Jeedom ---------------------------------------------------------------
+
+    /** Toute modification du modèle passe par ici : l'état de la TV est renvoyé s'il a changé. */
+    private fun update(transform: (AppState) -> AppState) {
+        model.update(transform)
+        val tvState = state.value.tvState
+        if (tvState != lastScheduledState) {
+            lastScheduledState = tvState
+            scheduleStateSend()
+        }
+    }
+
+    private fun resendState() {
+        lastScheduledState = state.value.tvState
+        scheduleStateSend()
+    }
+
+    /** Anti-rebond : seul l'état stable après [STATE_DEBOUNCE_MS] est envoyé. Erreurs ignorées. */
+    private fun scheduleStateSend() {
+        stateTimer?.cancel()
+        stateTimer = scope.launch {
+            delay(STATE_DEBOUNCE_MS)
+            val target = driver ?: return@launch
+            try {
+                target.state(state.value.tvState)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Jeedom l'aura au prochain changement ou à la prochaine reconnexion.
+            }
+        }
     }
 
     // --- Écran de configuration --------------------------------------------------------------
 
     /** Le formulaire Compose gère lui-même focus et saisie ; seul Retour nous intéresse. */
     private fun onSetupCommand(command: RemoteCommand, current: AppState): Boolean {
-        if (command != RemoteCommand.Back || driver == null || current.revision == null) return false
-        model.update { it.copy(screen = Screen.Pages, error = null) }
-        updateChangesLoop()
+        if (command != RemoteCommand.Back || driver == null || authBlocked || current.config == null) return false
+        update { it.copy(screen = Screen.Pages, error = null) }
         return true
     }
 
@@ -236,7 +441,7 @@ class AppController(
         val adjustTile = current.adjustTile
         val adjust = current.adjust
         if (adjust != null && adjustTile != null) return onAdjustCommand(command, adjust, adjustTile)
-        if (adjust != null) model.update { it.copy(adjust = null) } // Tuile disparue entre-temps.
+        if (adjust != null) update { it.copy(adjust = null) } // Tuile disparue entre-temps.
         return onGridCommand(command, current)
     }
 
@@ -256,7 +461,7 @@ class AppController(
             is RemoteCommand.Digit -> {
                 val target = command.value - 1
                 if (command.value in 1..9 && target in tiles.indices) {
-                    model.update { it.copy(focusedIndex = target) }
+                    update { it.copy(focusedIndex = target) }
                     activate(tiles[target])
                 }
             }
@@ -277,19 +482,19 @@ class AppController(
     }
 
     private fun moveFocusTo(target: Int, size: Int) {
-        if (target in 0 until size) model.update { it.copy(focusedIndex = target) }
+        if (target in 0 until size) update { it.copy(focusedIndex = target) }
     }
 
     /** Page suivante / précédente, en boucle ; la sélection revient sur la première tuile. */
     private fun showPage(index: Int) {
         val count = state.value.pages.size
         if (count == 0) return
-        model.update { it.copy(pageIndex = Math.floorMod(index, count), focusedIndex = 0) }
+        update { it.copy(pageIndex = Math.floorMod(index, count), focusedIndex = 0) }
     }
 
+    /** Configuration : la boucle continue (les ordres de Jeedom restent reçus). */
     private fun showSetup() {
-        stopChangesLoop()
-        model.update { it.copy(screen = Screen.Setup, error = null, adjust = null, confirm = null) }
+        update { it.copy(screen = Screen.Setup, error = null, adjust = null, confirm = null) }
     }
 
     /** OK (ou chiffre) sur une tuile, selon son type. */
@@ -307,7 +512,7 @@ class AppController(
 
     private fun enterAdjust(tile: Tile, positional: Boolean) {
         val pending = if (positional) tile.clamp(tile.numericValue ?: tile.min!!) else null
-        model.update { it.copy(adjust = Adjust(tile.id, pending)) }
+        update { it.copy(adjust = Adjust(tile.id, pending)) }
     }
 
     private fun onAdjustCommand(command: RemoteCommand, adjust: Adjust, tile: Tile): Boolean {
@@ -344,11 +549,11 @@ class AppController(
 
     private fun setPending(tile: Tile, value: Double) {
         val clamped = tile.clamp(value)
-        model.update { s -> s.adjust?.let { s.copy(adjust = it.copy(pending = clamped)) } ?: s }
+        update { s -> s.adjust?.let { s.copy(adjust = it.copy(pending = clamped)) } ?: s }
     }
 
     private fun leaveAdjust() {
-        model.update { it.copy(adjust = null) }
+        update { it.copy(adjust = null) }
     }
 
     // --- Confirmation et ordres --------------------------------------------------------------
@@ -356,10 +561,10 @@ class AppController(
     private fun onConfirmCommand(command: RemoteCommand, pending: PendingAction): Boolean {
         when (command) {
             RemoteCommand.Ok -> {
-                model.update { it.copy(confirm = null) }
+                update { it.copy(confirm = null) }
                 state.value.findTile(pending.tileId)?.let { execute(it, pending.action, pending.value) }
             }
-            RemoteCommand.Back -> model.update { it.copy(confirm = null) }
+            RemoteCommand.Back -> update { it.copy(confirm = null) }
             RemoteCommand.Menu -> showSetup()
             else -> Unit // La boîte de confirmation garde la main.
         }
@@ -369,7 +574,7 @@ class AppController(
     /** Ordre demandé par l'utilisateur : confirmation d'abord si la tuile l'exige. */
     private fun request(tile: Tile, action: TileAction, value: Double? = null) {
         if (tile.confirm) {
-            model.update {
+            update {
                 it.copy(confirm = PendingAction(tile.id, action, value, describe(tile, action, value)))
             }
         } else {
@@ -387,7 +592,7 @@ class AppController(
         scope.launch {
             try {
                 val newValue = target.exec(tile.id, action, value)
-                if (newValue != null) model.update { it.withChanges(listOf(TileChange(tile.id, newValue))) }
+                if (newValue != null) update { it.withChanges(listOf(TileChange(tile.id, newValue))) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -403,16 +608,16 @@ class AppController(
     private fun toggle(target: JeedomDriver, tile: Tile) {
         val old = state.value.findTile(tile.id)?.value
         val optimistic = if (state.value.findTile(tile.id)?.isOn == true) "0" else "1"
-        model.update { it.withChanges(listOf(TileChange(tile.id, optimistic))) }
+        update { it.withChanges(listOf(TileChange(tile.id, optimistic))) }
         scope.launch {
             try {
                 val newValue = target.exec(tile.id, TileAction.Toggle, null)
-                if (newValue != null) model.update { it.withChanges(listOf(TileChange(tile.id, newValue))) }
+                if (newValue != null) update { it.withChanges(listOf(TileChange(tile.id, newValue))) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // Retour en arrière, sauf si une valeur plus récente est arrivée entre-temps.
-                model.update {
+                update {
                     if (it.findTile(tile.id)?.value == optimistic) {
                         it.withChanges(listOf(TileChange(tile.id, old)))
                     } else {
@@ -425,20 +630,20 @@ class AppController(
     }
 
     private fun showNotice(message: String) {
-        model.update { it.copy(notice = message) }
+        update { it.copy(notice = message) }
         noticeTimer?.cancel()
         noticeTimer = scope.launch {
             delay(NOTICE_DURATION_MS)
-            model.update { it.copy(notice = null) }
+            update { it.copy(notice = null) }
         }
     }
 
     private fun flash(tileId: String) {
-        model.update { it.copy(flashTileId = tileId) }
+        update { it.copy(flashTileId = tileId) }
         flashTimer?.cancel()
         flashTimer = scope.launch {
             delay(FLASH_DURATION_MS)
-            model.update { it.copy(flashTileId = null) }
+            update { it.copy(flashTileId = null) }
         }
     }
 
@@ -461,7 +666,18 @@ class AppController(
         const val RETRY_DELAY_MS = 3_000L
         const val NOTICE_DURATION_MS = 4_000L
         const val FLASH_DURATION_MS = 600L
+        const val BANNER_DURATION_MS = 8_000L
+        const val STATE_DEBOUNCE_MS = 300L
+        const val MAX_HANDLED_IDS = 100
     }
+
+    /** [background] : l'application était en arrière-plan avant l'affichage temporaire. */
+    private data class ReturnTarget(
+        val screen: Screen,
+        val pageId: String?,
+        val focusedIndex: Int,
+        val background: Boolean,
+    )
 }
 
 // --- Fonctions pures sur l'état (testables sans contrôleur) -------------------------------------

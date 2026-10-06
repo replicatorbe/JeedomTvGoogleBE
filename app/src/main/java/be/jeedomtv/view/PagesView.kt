@@ -59,6 +59,9 @@ fun PagesView(state: AppState) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val page = state.currentPage
                 when {
+                    // Démarrage sans Jeedom (TV allumée avant le serveur) : la boucle réessaie.
+                    state.pages.isEmpty() && state.revision == null ->
+                        EmptyMessage("Jeedom injoignable, nouvel essai en cours…")
                     state.pages.isEmpty() -> EmptyMessage("Aucune page configurée pour cette TV dans Jeedom")
                     page == null || page.tiles.isEmpty() -> EmptyMessage("Aucune tuile sur cette page")
                     else -> TileGrid(page, state)

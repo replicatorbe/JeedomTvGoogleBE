@@ -19,7 +19,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 : code réduit et optimisé, démarrage nettement plus rapide que le build debug sur la TV.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Signé avec la clé de debug Android : installable par adb sans keystore dédié.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

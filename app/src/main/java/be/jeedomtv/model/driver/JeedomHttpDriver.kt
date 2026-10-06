@@ -10,6 +10,7 @@ import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
 import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
+import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.TvState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
@@ -83,10 +84,19 @@ class JeedomHttpDriver internal constructor(
             changes = dto.changes.orEmpty().mapNotNull { change ->
                 change.tile?.let { TileChange(it, change.value.asText()) }
             },
+            commands = dto.commands.orEmpty().mapNotNull { it.toCommand() },
         )
     }
 
-    override suspend fun state(state: TvState): Unit = TODO("MVP 3")
+    override suspend fun state(state: TvState) {
+        val body = buildJsonObject {
+            put("visible", state.visible)
+            put("screenOn", state.screenOn)
+            // null explicite : « hors écran des pages ».
+            put("page", state.page?.let { JsonPrimitive(it) } ?: JsonNull)
+        }
+        post("state", body)
+    }
 
     // --- HTTP -----------------------------------------------------------------------------------
 
@@ -276,7 +286,28 @@ private data class ChangesDto(
     val since: JsonElement? = null,
     val revision: String? = null,
     val changes: List<ChangeDto>? = null,
+    val commands: List<CommandDto>? = null,
 )
+
+@Serializable
+private data class CommandDto(
+    val id: Long? = null,
+    val type: String? = null,
+    val page: String? = null,
+    val duration: Double? = null,
+    val title: String? = null,
+    val message: String? = null,
+) {
+    /** Type inconnu ou `show` sans page : ignoré, comme le demande le contrat. */
+    fun toCommand(): TvCommand? = when (type) {
+        "show" -> page?.takeIf { it.isNotBlank() }?.let {
+            TvCommand.Show(id, it, (duration ?: 0.0).toInt().coerceAtLeast(0))
+        }
+        "notify" -> TvCommand.Notify(id, title.orEmpty(), message.orEmpty())
+        "exit" -> TvCommand.Exit(id)
+        else -> null
+    }
+}
 
 @Serializable
 private data class ChangeDto(val tile: String? = null, val value: JsonElement? = null)

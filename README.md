@@ -18,6 +18,11 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - Un indicateur « hors ligne » discret s'affiche quand Jeedom ne répond plus. L'application réessaie toutes les 3 s.
 - Confirmation avant tout ordre sur une tuile marquée « confirmer » dans Jeedom.
 - La TV ne connaît aucun id de commande Jeedom : une clé volée ne pilote que les tuiles de cette TV.
+- Pilotage par Jeedom, même pendant un film (service au premier plan, démarré avec la TV) :
+  - **Afficher une page**, avec retour automatique après une durée : à la page d'avant, ou à l'application d'avant (le film reprend). Une touche de la télécommande annule le retour ;
+  - **Message** : bandeau d'environ 8 s, si l'application est affichée ;
+  - **Quitter** : l'application passe en arrière-plan.
+- Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|
@@ -46,10 +51,11 @@ Un bandeau en bas de l'écran rappelle les touches du contexte.
 ```
 app/src/main/java/be/jeedomtv/
 ├── JeedomTvApp   Racine de composition : Modèle et Contrôleur vivent aussi longtemps que le processus
+├── JeedomTvService / BootReceiver   Service au premier plan (boucle des changements permanente), démarré avec la TV
 ├── model/        État de l'application (AppModel, AppState), configuration, pages et tuiles
 │   └── driver/   Interface JeedomDriver + implémentation HTTP (OkHttp, kotlinx.serialization)
 ├── controller/   AppController (écrans, sélection, réglage, confirmation, changements en direct)
-│                 et RemoteKeyMapper (touches → commandes)
+│                 ordres de Jeedom, état signalé, et RemoteKeyMapper (touches → commandes)
 └── view/         Écrans Compose for TV : configuration, chargement, pages, tuile, confirmation
 ```
 
@@ -66,7 +72,10 @@ Prérequis : Android SDK (API 35) et JDK 17 ou plus.
 ```bash
 ./gradlew :app:testDebugUnitTest      # tests unitaires
 ./gradlew :app:assembleDebug          # APK : app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleRelease        # APK : app/build/outputs/apk/release/app-release.apk
 ```
+
+Le build **release** est réduit et optimisé par R8 : il démarre beaucoup plus vite que le build debug sur la TV. Il est signé avec la clé de debug Android : il s'installe par adb sans keystore, et par-dessus un build debug du même poste (la configuration est conservée).
 
 Installation sur la TV :
 
@@ -75,8 +84,10 @@ Installation sur la TV :
 
 ```bash
 adb connect <IP_TV>:5555
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/release/app-release.apk
 ```
+
+Ensuite, appliquer les réglages de la section [Optimiser la TV](#optimiser-la-tv-adb-sans-root) : au minimum les deux premiers, sans lesquels le pilotage en arrière-plan ne fonctionne pas.
 
 Au premier lancement, l'écran de configuration demande :
 
@@ -85,7 +96,7 @@ Au premier lancement, l'écran de configuration demande :
 
 La configuration n'est enregistrée qu'après une connexion réussie.
 
-En build debug, la configuration peut aussi être passée par adb, ce qui évite la saisie au clavier de la TV :
+En build debug uniquement, la configuration peut aussi être passée par adb, ce qui évite la saisie au clavier de la TV :
 
 ```bash
 adb shell am start -n be.jeedomtv/.view.MainActivity \
@@ -96,7 +107,31 @@ adb shell am start -n be.jeedomtv/.view.MainActivity \
 
 Réglages utiles sur une TCL Google TV (Android 11). Ils sont réversibles et survivent à un redémarrage. À lancer depuis une machine du réseau, après `adb connect <IP_TV>:5555`.
 
-L'application n'a pas de service au premier plan : elle n'interroge Jeedom que lorsqu'elle est affichée. Les réglages d'arrière-plan de CameraOnTv ne sont donc pas nécessaires ici.
+### Indispensables au pilotage en arrière-plan
+
+```bash
+# Ouvrir l'écran depuis l'arrière-plan (ordre « Afficher » reçu pendant un film)
+adb shell appops set be.jeedomtv SYSTEM_ALERT_WINDOW allow
+
+# TCL : autoriser le démarrage automatique (refusé par défaut, il bloque le service au démarrage)
+adb shell appops set be.jeedomtv APP_AUTO_START allow
+```
+
+### Recommandés
+
+```bash
+# Exempter l'application de l'économiseur d'énergie et des restrictions d'arrière-plan
+adb shell dumpsys deviceidle whitelist +be.jeedomtv
+adb shell appops set be.jeedomtv RUN_IN_BACKGROUND allow
+adb shell appops set be.jeedomtv RUN_ANY_IN_BACKGROUND allow
+```
+
+Vérification :
+
+```bash
+adb shell appops get be.jeedomtv
+adb shell dumpsys deviceidle whitelist | grep jeedomtv
+```
 
 ### Libérer de la mémoire (optionnel)
 
@@ -123,4 +158,29 @@ adb shell settings put global animator_duration_scale 0.5
 
 ### Bon à savoir
 
-- **TCL a son propre gestionnaire de mémoire** (`com.tcl.guard`). Il peut tuer l'application quand elle est en arrière-plan. Ce n'est pas gênant : au retour, elle se reconnecte et recharge les pages.
+- **TCL a son propre gestionnaire de mémoire** (`com.tcl.guard`). Il ne peut pas être désactivé sans root, mais il épargne les applications qui ont un service au premier plan, comme celle-ci.
+- **Veille et réseau** : au rallumage de l'écran et au retour du réseau, l'application relance aussitôt l'attente des changements, avec des pages rechargées, et signale son état à Jeedom.
+- **Ordres périmés** : un ordre non livré au bout de 60 s est abandonné par le plugin. Une TV éteinte n'affiche donc pas une page périmée à son réveil.
+
+## Piloter la TV depuis Jeedom
+
+Le plugin crée sur l'équipement de la TV les commandes décrites dans [docs/api.md](docs/api.md#commandes-jeedom--tv) :
+
+| Commande | Usage |
+|---|---|
+| `Afficher <nom de page>` | Affiche la page, avec la durée par défaut de l'équipement (30 s) |
+| `Afficher page` | Titre = page (id ou nom), message = durée en s (`0` = sans retour) |
+| `Message` | Bandeau sur la TV (titre facultatif, message) |
+| `Quitter` | Retour au programme TV |
+| `Visible`, `Écran allumé`, `Page affichée`, `En ligne` | État de la TV, utilisable dans les conditions |
+
+Exemple de scénario « Sonnette » (déclencheur : la commande info du bouton de sonnette) :
+
+```
+SI #[TV salon][TV salon][Écran allumé]# == 1
+ALORS
+  #[TV salon][TV salon][Afficher page]#    titre : Volets    message : 20
+  #[TV salon][TV salon][Message]#          titre : Sonnette  message : Quelqu'un sonne à la porte
+```
+
+La TV passe au premier plan sur la page « Volets » et affiche le message. Si personne ne touche la télécommande, elle revient 20 s plus tard à ce qui était affiché avant, film compris. La condition évite de réveiller une TV en veille. Les noms entre crochets (objet, équipement) dépendent de votre installation.
