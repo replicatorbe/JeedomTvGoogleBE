@@ -68,7 +68,7 @@ fun QuestionDialog(question: Question, modifier: Modifier = Modifier) {
                 Answers(question)
                 Countdown(question)
                 Text(
-                    "◀ ▶ : choisir · OK : répondre · 1-${question.answers.size} : réponse directe · Retour : fermer",
+                    "◀ ▶ ou 1-${question.answers.size} : choisir · OK : répondre · Retour : fermer",
                     color = JeedomTvColors.TextMuted,
                     fontSize = 16.sp,
                 )

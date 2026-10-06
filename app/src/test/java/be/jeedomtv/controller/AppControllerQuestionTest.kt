@@ -158,17 +158,20 @@ class AppControllerQuestionTest {
     }
 
     @Test
-    fun `chiffre - reponse N envoyee directement`() = runTest {
+    fun `chiffre - selectionne la reponse N sans l'envoyer, OK l'envoie`() = runTest {
         val factory = FakeDriverFactory()
         val c = started(factory)
         factory.send(portail())
         runCurrent()
         c.press(Digit(3), Digit(0))
-        assertTrue("hors liste : rien", factory.answers.isEmpty())
+        assertEquals("hors liste : sélection inchangée", 0, c.question!!.selected)
         c.press(Digit(2))
         runCurrent()
-        assertEquals(listOf("jeton-1" to "Ignorer"), factory.answers)
+        assertTrue("un chiffre n'envoie rien", factory.answers.isEmpty())
         assertEquals(1, c.question!!.selected)
+        c.press(Ok)
+        runCurrent()
+        assertEquals(listOf("jeton-1" to "Ignorer"), factory.answers)
     }
 
     @Test

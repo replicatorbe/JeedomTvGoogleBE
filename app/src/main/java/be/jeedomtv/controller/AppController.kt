@@ -599,8 +599,10 @@ class AppController(
     }
 
     /**
-     * ◀ ▶ (et ▲ ▼) changent de réponse, 1 à N répondent directement, OK envoie, Retour ferme
-     * sans répondre. Les touches ne prolongent pas le délai.
+     * ◀ ▶ (et ▲ ▼) changent de réponse, 1 à N la sélectionnent, seul OK envoie, Retour ferme
+     * sans répondre. Les touches ne prolongent pas le délai. Un chiffre n'envoie jamais rien :
+     * la question prend la main par-dessus la télé, et un numéro de chaîne tapé à ce moment
+     * ne doit pas répondre « Ouvrir » au portail.
      */
     private fun onQuestionCommand(command: RemoteCommand, question: Question): Boolean {
         if (question.status != QuestionStatus.Choosing) {
@@ -613,7 +615,7 @@ class AppController(
             RemoteCommand.Left, RemoteCommand.Up -> selectAnswer((question.selected - 1).coerceAtLeast(0))
             RemoteCommand.Right, RemoteCommand.Down -> selectAnswer((question.selected + 1).coerceAtMost(last))
             RemoteCommand.Ok -> sendAnswer(question, question.selected)
-            is RemoteCommand.Digit -> if (command.value in 1..question.answers.size) sendAnswer(question, command.value - 1)
+            is RemoteCommand.Digit -> if (command.value in 1..question.answers.size) selectAnswer(command.value - 1)
             RemoteCommand.Back -> closeQuestion()
             else -> Unit // CH+/CH-, Menu : la question garde la main.
         }

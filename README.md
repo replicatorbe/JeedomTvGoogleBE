@@ -229,7 +229,7 @@ Le bloc **Demander** d'un scénario Jeedom peut poser une question à la TV et a
 |---|---|
 | ◀ ▶ (ou ▲ ▼) | Choisir une réponse (la première est sélectionnée au départ) |
 | OK | Envoyer la réponse sélectionnée |
-| 1 à N | Envoyer directement la réponse N |
+| 1 à N | Sélectionner la réponse N (seul OK l'envoie : un numéro de chaîne tapé par erreur ne répond jamais) |
 | Retour | Fermer sans répondre |
 
 Une barre de compte à rebours montre le temps restant ; à la fin, la question se ferme d'elle-même et le scénario reçoit « Aucune réponse ». Les touches ne prolongent pas le délai. Après l'envoi, la TV affiche environ 2 s « Réponse envoyée : … », ou « Question expirée » / « Réponse refusée » si Jeedom ne l'accepte plus.
