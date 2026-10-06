@@ -12,7 +12,6 @@ import be.jeedomtv.BuildConfig
 import be.jeedomtv.JeedomTvApp
 import be.jeedomtv.controller.AppController
 import be.jeedomtv.controller.RemoteCommand
-import be.jeedomtv.controller.RemoteKeyMapper
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Screen
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -27,8 +26,8 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var controller: AppController
 
-    /** Touches dont l'ACTION_DOWN a été consommé : on consomme aussi leur ACTION_UP. */
-    private val consumedKeyCodes = mutableSetOf<Int>()
+    /** Touches transmises au contrôleur (même gestion que le panneau en superposition). */
+    private val keys = RemoteKeyForwarder(::shouldForward) { controller.onCommand(it) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,28 +90,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        consumedKeyCodes.clear()
+        keys.clear()
         super.onStop()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        when (event.action) {
-            KeyEvent.ACTION_DOWN -> {
-                val command = RemoteKeyMapper.map(event.keyCode)
-                // Touche maintenue : seules les flèches se répètent (défilement de la sélection ou de la
-                // valeur en attente) ; OK maintenu ne doit pas basculer un interrupteur dix fois.
-                val repeatable = event.repeatCount == 0 || command in REPEATABLE
-                if (command != null && repeatable && shouldForward(command) && controller.onCommand(command)) {
-                    consumedKeyCodes += event.keyCode
-                    return true
-                }
-                // Répétition ignorée d'une touche déjà consommée : on la garde jusqu'au relâchement.
-                if (event.keyCode in consumedKeyCodes) return true
-            }
-            KeyEvent.ACTION_UP -> {
-                if (consumedKeyCodes.remove(event.keyCode)) return true
-            }
-        }
+        if (keys.dispatch(event)) return true
         // Non géré par le contrôleur : comportement Android normal
         // (Retour quitte l'app depuis les pages, focus Compose dans le formulaire).
         return super.dispatchKeyEvent(event)
@@ -153,7 +136,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
-        val REPEATABLE = setOf(RemoteCommand.Up, RemoteCommand.Down, RemoteCommand.Left, RemoteCommand.Right)
         const val TAG = "JeedomTv"
     }
 }

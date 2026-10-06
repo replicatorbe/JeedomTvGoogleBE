@@ -2,13 +2,16 @@ package be.jeedomtv
 
 import android.app.Application
 import android.content.Intent
+import android.provider.Settings
 import android.util.Log
 import be.jeedomtv.controller.AppController
+import be.jeedomtv.controller.OverlayPermission
 import be.jeedomtv.model.AppModel
 import be.jeedomtv.model.DataStoreSettingsRepository
 import be.jeedomtv.model.driver.JeedomDriverFactory
 import be.jeedomtv.model.driver.JeedomHttpDriver
 import be.jeedomtv.view.MainActivity
+import be.jeedomtv.view.OverlayWindowManager
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -35,10 +38,13 @@ class JeedomTvApp : Application() {
         model = AppModel()
         val settings = DataStoreSettingsRepository(this)
         val driverFactory = JeedomDriverFactory { config -> JeedomHttpDriver(config) }
-        controller = AppController(model, settings, driverFactory, scope)
+        // Permission « afficher par-dessus » (appops SYSTEM_ALERT_WINDOW) : relue à chaque ordre.
+        val overlayPermission = OverlayPermission { Settings.canDrawOverlays(this) }
+        controller = AppController(model, settings, driverFactory, scope, overlayPermission)
 
         controller.start()
         bringToFrontOnRequest()
+        OverlayWindowManager(this, controller, scope).start()
         JeedomTvService.start(this)
     }
 

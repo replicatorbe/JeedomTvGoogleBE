@@ -116,7 +116,7 @@ private fun Header(state: AppState) {
 }
 
 @Composable
-private fun PageTab(page: Page, selected: Boolean) {
+internal fun PageTab(page: Page, selected: Boolean) {
     Text(
         page.name,
         color = if (selected) JeedomTvColors.OnAccent else JeedomTvColors.TextMuted,
@@ -132,8 +132,9 @@ private fun PageTab(page: Page, selected: Boolean) {
     )
 }
 
+/** Grille de la page ; [visibleRows] rangées tiennent dans la hauteur disponible (panneau : moins). */
 @Composable
-private fun TileGrid(page: Page, state: AppState) {
+internal fun TileGrid(page: Page, state: AppState, visibleRows: Int = VISIBLE_ROWS) {
     val gridState = rememberLazyGridState()
     // Fait défiler la grille pour garder la tuile sélectionnée visible.
     LaunchedEffect(page.id, state.focusedIndex) {
@@ -146,7 +147,7 @@ private fun TileGrid(page: Page, state: AppState) {
     }
     // Hauteur calculée pour que trois rangées tiennent à l'écran, quelle que soit la densité de la TV.
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val tileHeight = ((maxHeight - TileSpacing * (VISIBLE_ROWS - 1)) / VISIBLE_ROWS)
+        val tileHeight = ((maxHeight - TileSpacing * (visibleRows - 1)) / visibleRows)
             .coerceAtLeast(MinTileHeight)
         LazyVerticalGrid(
             columns = GridCells.Fixed(AppState.GRID_COLUMNS),
@@ -176,15 +177,18 @@ private fun EmptyMessage(text: String) {
     }
 }
 
-/** Mode réglage : valeur en attente et jauge (curseur, volet avec position), ou ordres directs du volet. */
+/**
+ * Mode réglage : valeur en attente et jauge (curseur, volet avec position), ou ordres directs du volet.
+ * [compact] : version resserrée pour le panneau en superposition.
+ */
 @Composable
-private fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifier) {
+internal fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifier, compact: Boolean = false) {
     Column(
         modifier
             .width(720.dp)
             .background(JeedomTvColors.Overlay, RoundedCornerShape(16.dp))
-            .padding(horizontal = 40.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+            .padding(horizontal = 40.dp, vertical = if (compact) 12.dp else 32.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -198,7 +202,7 @@ private fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifie
             Text(
                 formatValue(pending, tile.displayUnit),
                 color = JeedomTvColors.Accent,
-                fontSize = 56.sp,
+                fontSize = if (compact) 36.sp else 56.sp,
                 fontWeight = FontWeight.Bold,
             )
             val span = (max - min).toFloat()
@@ -246,7 +250,7 @@ private fun Notice(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun HelpBanner(text: String) {
+internal fun HelpBanner(text: String) {
     Text(
         text,
         color = JeedomTvColors.TextMuted,

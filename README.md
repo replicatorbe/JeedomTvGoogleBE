@@ -19,9 +19,9 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
 - Confirmation avant tout ordre sur une tuile marquée « confirmer » dans Jeedom.
 - La TV ne connaît aucun id de commande Jeedom : une clé volée ne pilote que les tuiles de cette TV.
 - Pilotage par Jeedom, même pendant un film (service au premier plan, démarré avec la TV) :
-  - **Afficher une page**, avec retour automatique après une durée : à la page d'avant, ou à l'application d'avant (le film reprend). Une touche de la télécommande annule le retour ;
-  - **Message** : bandeau d'environ 8 s, si l'application est affichée ;
-  - **Quitter** : l'application passe en arrière-plan.
+  - **Afficher une page** : pendant un film, en [superposition](#superposition-par-dessus-la-vidéo), sans interrompre la vidéo ; sinon dans l'application, avec retour automatique après une durée. Une touche de la télécommande annule le retour ;
+  - **Message** : bandeau d'environ 8 s, dans l'application ou par-dessus la vidéo ;
+  - **Quitter** : la superposition se ferme, ou l'application passe en arrière-plan.
 - Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
@@ -51,6 +51,7 @@ Un bandeau en bas de l'écran rappelle les touches du contexte.
 ```
 app/src/main/java/be/jeedomtv/
 ├── JeedomTvApp   Racine de composition : Modèle et Contrôleur vivent aussi longtemps que le processus
+├── view/OverlayWindowManager   Fenêtres de superposition (bandeau, panneau) hors de toute activité
 ├── JeedomTvService / BootReceiver   Service au premier plan (boucle des changements permanente), démarré avec la TV
 ├── model/        État de l'application (AppModel, AppState), configuration, pages et tuiles
 │   └── driver/   Interface JeedomDriver + implémentation HTTP (OkHttp, kotlinx.serialization)
@@ -110,7 +111,7 @@ Réglages utiles sur une TCL Google TV (Android 11). Ils sont réversibles et su
 ### Indispensables au pilotage en arrière-plan
 
 ```bash
-# Ouvrir l'écran depuis l'arrière-plan (ordre « Afficher » reçu pendant un film)
+# Superposition par-dessus la vidéo, et ouverture de l'écran depuis l'arrière-plan
 adb shell appops set be.jeedomtv SYSTEM_ALERT_WINDOW allow
 
 # TCL : autoriser le démarrage automatique (refusé par défaut, il bloque le service au démarrage)
@@ -185,4 +186,31 @@ ALORS
   #[TV salon][TV salon][Message]#          titre : Sonnette  message : Quelqu'un sonne à la porte
 ```
 
-La TV passe au premier plan sur la page « Volets » et affiche le message. Si personne ne touche la télécommande, elle revient 20 s plus tard à ce qui était affiché avant, film compris. La condition évite de réveiller une TV en veille. Les noms entre crochets (objet, équipement) dépendent de votre installation.
+Pendant un film, le panneau de la page « Volets » s'affiche par-dessus la vidéo, avec le message ; il se ferme seul 20 s plus tard si personne ne touche la télécommande. Si l'application était déjà affichée, elle passe sur la page « Volets » puis revient 20 s plus tard à ce qui était affiché avant. La condition évite de réveiller une TV en veille. Les noms entre crochets (objet, équipement) dépendent de votre installation.
+
+## Superposition par-dessus la vidéo
+
+Sur Google TV, ouvrir une application par-dessus une autre fait passer la vidéo en arrière-plan. YouTube, par exemple, l'arrête alors : au retour, il affiche le choix du profil et la vidéo est à recommencer. Quand l'application est cachée, les ordres de Jeedom s'affichent donc dans des fenêtres de superposition : l'application vidéo reste au premier plan (« resumed ») et continue sa lecture.
+
+| Ordre | Application affichée | Application cachée (film, IPTV…) |
+|---|---|---|
+| Message | Bandeau dans l'application | Bandeau en haut de l'écran, ~8 s. Il ne prend pas le focus : la télécommande continue de piloter la vidéo. |
+| Afficher page | Page dans l'application | Panneau semi-transparent sur la moitié basse de l'écran : la page en grille compacte. |
+| Quitter | Retour à l'application d'avant | Fermeture de la superposition |
+
+Touches du panneau : les mêmes que sur l'écran des pages (flèches, OK, 1 à 9, CH+ / CH-, mode réglage, confirmation), plus :
+
+| Touche | Action |
+|---|---|
+| Retour | Fermer le panneau (ou annuler le réglage / la confirmation en cours) |
+| Menu | Ouvrir l'application complète sur la même page |
+
+Le panneau se ferme seul après la durée de l'ordre. Une touche de la télécommande annule cette fermeture ; il se ferme alors après une minute sans touche, comme un panneau sans durée. Pour Jeedom, le panneau compte comme un affichage : `Visible` vaut 1 et `Page affichée` donne sa page.
+
+**Permission requise** : « afficher par-dessus les autres applications », accordée par adb (voir [Indispensables au pilotage en arrière-plan](#indispensables-au-pilotage-en-arrière-plan)). Sans elle, l'ordre « Afficher » ouvre l'application comme avant, et le bandeau n'est pas affiché quand l'application est cachée.
+
+Limites :
+
+- Le panneau prend le focus de la télécommande : tant qu'il est affiché, les touches ne vont plus à la vidéo. La plupart des lecteurs continuent leur lecture, mais une application qui se met en pause à la perte du focus le ferait.
+- L'écran d'accueil de Google TV compte aussi comme une « application cachée » : le panneau s'y affiche par-dessus.
+- Le panneau ne réagit qu'à la télécommande (pas au toucher ni à la souris).

@@ -43,7 +43,7 @@ fun AppView(controller: AppController) {
 
 /** Message de Jeedom (ordre `notify`), au-dessus de tout écran pendant quelques secondes. */
 @Composable
-private fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
+internal fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(12.dp)
     Column(
         modifier

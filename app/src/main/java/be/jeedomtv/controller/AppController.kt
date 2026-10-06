@@ -6,6 +6,7 @@ import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Banner
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
+import be.jeedomtv.model.Overlay
 import be.jeedomtv.model.PendingAction
 import be.jeedomtv.model.Screen
 import be.jeedomtv.model.SettingsRepository
@@ -83,6 +84,12 @@ class AppController(
     private var returnTarget: ReturnTarget? = null
     private var returnTimer: Job? = null
 
+    /** Fermeture automatique de la superposition (durée de l'ordre, puis inactivité). */
+    private var overlayTimer: Job? = null
+
+    /** Sélection de l'application avant l'ouverture du panneau, rendue à sa fermeture. */
+    private var panelReturn: PanelReturn? = null
+
     /** Au lancement : configuration enregistrée → connexion, sinon écran de configuration. */
     fun start() {
         launchExclusive {
@@ -108,9 +115,11 @@ class AppController(
 
     /** Retourne true si la commande a été traitée (l'activité consomme alors la touche). */
     fun onCommand(command: RemoteCommand): Boolean {
+        val current = state.value
+        // Panneau en superposition : c'est lui qui a le focus, pas l'activité.
+        if (current.overlay is Overlay.Panel) return onPanelCommand(command, current)
         // L'utilisateur a repris la main : un affichage temporaire devient définitif.
         cancelAutoReturn()
-        val current = state.value
         return when (current.screen) {
             Screen.Pages -> onPagesCommand(command, current)
             Screen.Setup -> onSetupCommand(command, current)
@@ -121,6 +130,8 @@ class AppController(
     /** L'écran de l'application devient visible ou passe derrière une autre application. */
     fun onUiVisibilityChanged(visible: Boolean) {
         update { it.copy(uiVisible = visible, foregroundRequested = it.foregroundRequested && !visible) }
+        // L'application complète est affichée : la superposition n'a plus lieu d'être.
+        if (visible && state.value.overlay != Overlay.None) dismissOverlay(restoreSelection = false)
     }
 
     /** La TV allume ou éteint son écran (sortie ou entrée en veille). */
@@ -310,6 +321,11 @@ class AppController(
         if (current.screen == Screen.Loading || (current.screen == Screen.Setup && current.uiVisible)) return
         val index = current.pages.indexOfFirst { it.id == command.page }
         if (index < 0) return
+        // Application cachée (vidéo en cours) : panneau par-dessus, la vidéo reste au premier plan.
+        if (!current.uiVisible && overlayPermission.granted()) {
+            openPanel(index, command)
+            return
+        }
         // Un affichage temporaire déjà en cours garde l'écran d'origine.
         val previous = returnTarget ?: ReturnTarget(
             screen = current.screen,
@@ -377,8 +393,21 @@ class AppController(
      * regarder : un `show` qui la ramène au premier plan peut précéder le message dans la même réponse.
      */
     private fun notify(command: TvCommand.Notify) {
-        if (!state.value.uiVisible && !state.value.foregroundRequested) return
-        update { it.copy(banner = Banner(command.title, command.message)) }
+        val current = state.value
+        val banner = Banner(command.title, command.message)
+        if (!current.uiVisible && !current.foregroundRequested) {
+            when {
+                // Le panneau affiche le bandeau en son sein.
+                current.overlay is Overlay.Panel -> Unit
+                // Bandeau en superposition, sans focus : la vidéo ne remarque rien.
+                overlayPermission.granted() -> {
+                    showNoticeOverlay(banner)
+                    return
+                }
+                else -> return
+            }
+        }
+        update { it.copy(banner = banner) }
         bannerTimer?.cancel()
         bannerTimer = scope.launch {
             delay(BANNER_DURATION_MS)
@@ -388,9 +417,102 @@ class AppController(
 
     private fun exit() {
         cancelAutoReturn()
+        if (state.value.overlay != Overlay.None) dismissOverlay(restoreSelection = true)
         // Déjà en arrière-plan : rien à quitter.
         update {
             it.copy(adjust = null, confirm = null, exitRequested = it.uiVisible, foregroundRequested = false)
+        }
+    }
+
+    // --- Superposition ------------------------------------------------------------------------
+
+    /** Bandeau par-dessus la vidéo ; un nouvel ordre remplace la superposition courante. */
+    private fun showNoticeOverlay(banner: Banner) {
+        if (state.value.overlay is Overlay.Panel) dismissOverlay(restoreSelection = true)
+        update { it.copy(overlay = Overlay.Notice(banner)) }
+        restartOverlayTimer(BANNER_DURATION_MS)
+    }
+
+    /** Panneau par-dessus la vidéo, sur la page [index] ; il remplace la superposition courante. */
+    private fun openPanel(index: Int, command: TvCommand.Show) {
+        cancelAutoReturn()
+        val current = state.value
+        if (current.overlay !is Overlay.Panel) panelReturn = PanelReturn(current.pageIndex, current.focusedIndex)
+        update {
+            it.copy(
+                pageIndex = index,
+                focusedIndex = 0,
+                adjust = null,
+                confirm = null,
+                overlay = Overlay.Panel(command.page, command.durationSec),
+            )
+        }
+        restartOverlayTimer(if (command.durationSec > 0) command.durationSec * 1000L else PANEL_IDLE_MS)
+    }
+
+    private fun restartOverlayTimer(delayMs: Long) {
+        overlayTimer?.cancel()
+        overlayTimer = scope.launch {
+            delay(delayMs)
+            overlayTimer = null
+            dismissOverlay(restoreSelection = true)
+        }
+    }
+
+    /** Ferme la superposition ; [restoreSelection] rend à l'application sa page d'avant le panneau. */
+    private fun dismissOverlay(restoreSelection: Boolean) {
+        overlayTimer?.cancel()
+        overlayTimer = null
+        val back = panelReturn
+        panelReturn = null
+        update { s ->
+            val closed = if (s.overlay is Overlay.Panel) s.copy(adjust = null, confirm = null) else s
+            val restored = if (restoreSelection && back != null && s.overlay is Overlay.Panel) {
+                val index = back.pageIndex.coerceIn(0, (s.pages.size - 1).coerceAtLeast(0))
+                val count = s.pages.getOrNull(index)?.tiles?.size ?: 0
+                closed.copy(pageIndex = index, focusedIndex = back.focusedIndex.coerceIn(0, (count - 1).coerceAtLeast(0)))
+            } else {
+                closed
+            }
+            restored.copy(overlay = Overlay.None)
+        }
+    }
+
+    /**
+     * Touches du panneau : comme sur l'écran des pages (flèches, OK, chiffres, CH+/CH-, réglage,
+     * confirmation). Retour ferme le panneau, Menu ouvre l'application complète. Toute touche
+     * annule la fermeture programmée par la durée de l'ordre ; reste la minute d'inactivité.
+     */
+    private fun onPanelCommand(command: RemoteCommand, current: AppState): Boolean {
+        restartOverlayTimer(PANEL_IDLE_MS)
+        if (command == RemoteCommand.Menu) {
+            openFullApp()
+            return true
+        }
+        current.confirm?.let { return onConfirmCommand(command, it) }
+        val adjust = current.adjust
+        val adjustTile = current.adjustTile
+        if (adjust != null && adjustTile != null) return onAdjustCommand(command, adjust, adjustTile)
+        if (command == RemoteCommand.Back) {
+            dismissOverlay(restoreSelection = true)
+            return true
+        }
+        onGridCommand(command, current)
+        return true
+    }
+
+    /** Menu dans le panneau : l'application complète s'ouvre sur la même page (comme le `show` d'avant). */
+    private fun openFullApp() {
+        overlayTimer?.cancel()
+        overlayTimer = null
+        panelReturn = null
+        update {
+            it.copy(
+                overlay = Overlay.None,
+                screen = Screen.Pages,
+                error = null,
+                foregroundRequested = !it.uiVisible,
+            )
         }
     }
 
@@ -671,7 +793,12 @@ class AppController(
         const val BANNER_DURATION_MS = 8_000L
         const val STATE_DEBOUNCE_MS = 300L
         const val MAX_HANDLED_IDS = 100
+
+        /** Panneau sans durée, ou touché par l'utilisateur : fermé après une minute sans touche. */
+        const val PANEL_IDLE_MS = 60_000L
     }
+
+    private data class PanelReturn(val pageIndex: Int, val focusedIndex: Int)
 
     /** [background] : l'application était en arrière-plan avant l'affichage temporaire. */
     private data class ReturnTarget(
