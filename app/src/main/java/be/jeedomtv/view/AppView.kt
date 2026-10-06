@@ -56,6 +56,6 @@ internal fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
         if (banner.title.isNotBlank()) {
             Text(banner.title, color = JeedomTvColors.Accent, fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
-        Text(banner.message, color = JeedomTvColors.Text, fontSize = 28.sp)
+        Text(banner.message, color = JeedomTvColors.Text, fontSize = 28.sp, lineHeight = 34.sp)
     }
 }

@@ -27,7 +27,8 @@ import be.jeedomtv.model.Overlay
 import be.jeedomtv.model.TileType
 
 /** Fond du panneau : semi-transparent, la vidéo reste devinable derrière. */
-private val PanelBackground = JeedomTvColors.Background.copy(alpha = 0.86f)
+/** Presque opaque : l'interface de l'application vidéo (guide, menus) ne doit pas se lire au travers. */
+private val PanelBackground = JeedomTvColors.Background.copy(alpha = 0.95f)
 
 /** Bandeau `notify` par-dessus la vidéo (fenêtre ni focusable ni tactile). */
 @Composable
