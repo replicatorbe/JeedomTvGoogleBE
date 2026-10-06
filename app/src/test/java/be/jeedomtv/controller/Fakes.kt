@@ -51,6 +51,10 @@ class FakeDriverFactory(
     val execCalls = mutableListOf<ExecCall>()
     val changesCalls = mutableListOf<String?>()
 
+    /** Réponses envoyées (jeton, réponse), dans l'ordre. */
+    val answers = mutableListOf<Pair<String, String>>()
+    var onAnswer: suspend (String, String) -> Unit = { _, _ -> }
+
     /** États signalés à Jeedom, dans l'ordre. */
     val states = mutableListOf<TvState>()
     var onState: suspend (TvState) -> Unit = {}
@@ -86,6 +90,11 @@ class FakeDriverFactory(
             override suspend fun changes(since: String?): Changes {
                 changesCalls += since
                 return changesResults.receive().getOrThrow()
+            }
+
+            override suspend fun answer(ask: String, answer: String) {
+                onAnswer(ask, answer)
+                answers += ask to answer
             }
 
             override suspend fun state(state: TvState) {

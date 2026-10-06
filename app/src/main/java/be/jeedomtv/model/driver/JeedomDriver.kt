@@ -30,6 +30,12 @@ interface JeedomDriver {
 
     /** Signale à Jeedom l'état de la TV (visible, écran allumé, page affichée). */
     suspend fun state(state: TvState)
+
+    /**
+     * Répond à la question [ask] par [answer]. Lève [JeedomException] avec [JeedomException.httpCode]
+     * 404 (question expirée ou déjà répondue) ou 422 (réponse hors liste).
+     */
+    suspend fun answer(ask: String, answer: String)
 }
 
 fun interface JeedomDriverFactory {

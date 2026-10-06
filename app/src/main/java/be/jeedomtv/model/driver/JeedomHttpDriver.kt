@@ -98,6 +98,8 @@ class JeedomHttpDriver internal constructor(
         post("state", body)
     }
 
+    override suspend fun answer(ask: String, answer: String): Unit = TODO("Questions")
+
     // --- HTTP -----------------------------------------------------------------------------------
 
     private suspend fun get(action: String): String = call(action, client)

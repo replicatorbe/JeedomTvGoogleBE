@@ -48,6 +48,34 @@ sealed interface Overlay {
     data class Panel(val pageId: String, val durationSec: Int) : Overlay
 }
 
+/** Étape d'une question : choix, envoi de la réponse, puis résultat affiché ~2 s. */
+sealed interface QuestionStatus {
+    data object Choosing : QuestionStatus
+    data object Sending : QuestionStatus
+    data class Sent(val answer: String) : QuestionStatus
+    data class Failed(val message: String) : QuestionStatus
+}
+
+/**
+ * Question de Jeedom en cours (ordre `ask`). Elle passe au-dessus de tout (pages, réglage,
+ * panneau, bandeau) ; à sa fermeture, ce qui était affiché derrière revient tel quel.
+ */
+data class Question(
+    /** Jeton à renvoyer avec la réponse. */
+    val ask: String,
+    val title: String,
+    val message: String,
+    val answers: List<String>,
+    val timeoutSec: Int,
+    /** Secondes restantes avant la fermeture automatique (compte à rebours affiché). */
+    val remainingSec: Int,
+    /** Index de la réponse sélectionnée ; la première par défaut. */
+    val selected: Int = 0,
+    val status: QuestionStatus = QuestionStatus.Choosing,
+    /** Affichée en superposition, par-dessus une autre application (sinon dans l'application). */
+    val inOverlay: Boolean = false,
+)
+
 /** État complet de l'application : la seule chose que les vues observent. */
 data class AppState(
     val screen: Screen = Screen.Loading,
@@ -82,6 +110,8 @@ data class AppState(
     val foregroundRequested: Boolean = false,
     /** Superposition affichée par-dessus une autre application. */
     val overlay: Overlay = Overlay.None,
+    /** Question de Jeedom en cours. */
+    val question: Question? = null,
 ) {
     val currentPage: Page?
         get() = pages.getOrNull(pageIndex)
@@ -98,8 +128,9 @@ data class AppState(
         get() {
             // Le panneau en superposition compte comme un affichage : on y regarde une page.
             val panel = overlay is Overlay.Panel
+            val questionOverlay = question?.inOverlay == true
             return TvState(
-                visible = uiVisible || panel,
+                visible = uiVisible || panel || questionOverlay,
                 screenOn = screenOn,
                 page = if (screen == Screen.Pages || panel) currentPage?.id else null,
             )

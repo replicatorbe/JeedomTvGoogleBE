@@ -95,6 +95,19 @@ sealed interface TvCommand {
 
     /** Passe l'application en arrière-plan. */
     data class Exit(override val id: Long?) : TvCommand
+
+    /**
+     * Question d'un bloc « Demander » : [ask] est le jeton à renvoyer avec la réponse choisie
+     * parmi [answers] (au moins une) ; fermeture d'elle-même après [timeoutSec] s.
+     */
+    data class Ask(
+        override val id: Long?,
+        val ask: String,
+        val title: String,
+        val message: String,
+        val answers: List<String>,
+        val timeoutSec: Int,
+    ) : TvCommand
 }
 
 /** État de la TV signalé à Jeedom par `POST ?action=state`. */

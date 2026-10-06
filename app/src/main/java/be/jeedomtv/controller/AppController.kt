@@ -308,6 +308,7 @@ class AppController(
             is TvCommand.Show -> show(command)
             is TvCommand.Notify -> notify(command)
             is TvCommand.Exit -> exit()
+            is TvCommand.Ask -> Unit // Questions : à venir.
         }
     }
 
