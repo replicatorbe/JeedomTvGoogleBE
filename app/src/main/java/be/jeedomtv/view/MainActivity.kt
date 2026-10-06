@@ -125,7 +125,9 @@ class MainActivity : ComponentActivity() {
      * et à la navigation Compose : seuls Retour et Menu vont au contrôleur.
      */
     private fun shouldForward(command: RemoteCommand): Boolean =
-        controller.state.value.screen != Screen.Setup ||
+        // Une question passe au-dessus du formulaire : elle reçoit toutes les touches.
+        controller.state.value.question != null ||
+            controller.state.value.screen != Screen.Setup ||
             command == RemoteCommand.Back || command == RemoteCommand.Menu
 
     /**

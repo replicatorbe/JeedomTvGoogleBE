@@ -98,7 +98,12 @@ class JeedomHttpDriver internal constructor(
         post("state", body)
     }
 
-    override suspend fun answer(ask: String, answer: String): Unit = TODO("Questions")
+    override suspend fun answer(ask: String, answer: String) {
+        post("answer", buildJsonObject {
+            put("ask", ask)
+            put("answer", answer)
+        })
+    }
 
     // --- HTTP -----------------------------------------------------------------------------------
 
@@ -200,14 +205,14 @@ class JeedomHttpDriver internal constructor(
             } else {
                 JsonPrimitive(value)
             }
-
-        /** Valeur brute : chaîne telle quelle, nombre en texte, null sinon. */
-        private fun JsonElement?.asText(): String? = when (this) {
-            null, JsonNull -> null
-            is JsonPrimitive -> contentOrNull
-            else -> null
-        }
     }
+}
+
+/** Valeur brute : chaîne telle quelle, nombre en texte, null sinon. */
+private fun JsonElement?.asText(): String? = when (this) {
+    null, JsonNull -> null
+    is JsonPrimitive -> contentOrNull
+    else -> null
 }
 
 // --- Corps JSON du contrat (tous les champs optionnels : le plugin évolue en parallèle) -----------
@@ -299,6 +304,9 @@ private data class CommandDto(
     val duration: Double? = null,
     val title: String? = null,
     val message: String? = null,
+    val ask: String? = null,
+    val answers: List<JsonElement>? = null,
+    val timeout: Double? = null,
 ) {
     /** Type inconnu ou `show` sans page : ignoré, comme le demande le contrat. */
     fun toCommand(): TvCommand? = when (type) {
@@ -307,6 +315,20 @@ private data class CommandDto(
         }
         "notify" -> TvCommand.Notify(id, title.orEmpty(), message.orEmpty())
         "exit" -> TvCommand.Exit(id)
+        // Question sans jeton ou sans réponse possible : inutilisable, ignorée.
+        "ask" -> {
+            val choices = answers.orEmpty().mapNotNull { it.asText()?.takeIf { text -> text.isNotBlank() } }
+            ask?.takeIf { it.isNotBlank() && choices.isNotEmpty() }?.let {
+                TvCommand.Ask(
+                    id = id,
+                    ask = it,
+                    title = title.orEmpty(),
+                    message = message.orEmpty(),
+                    answers = choices,
+                    timeoutSec = (timeout ?: 0.0).toInt().coerceAtLeast(0),
+                )
+            }
+        }
         else -> null
     }
 }

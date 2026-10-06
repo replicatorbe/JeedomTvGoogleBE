@@ -254,6 +254,53 @@ class JeedomHttpDriverTest {
         assertEquals("JSON invalide", e.message)
     }
 
+    @Test
+    fun `changes avec une question ask, questions inutilisables ignorees`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"since": 5, "revision": "r", "changes": [], "commands": [
+                  {"id": 30, "type": "ask", "ask": "a1b2c3", "title": "Sonnette",
+                   "message": "On sonne au portail. Ouvrir ?", "answers": ["Ouvrir", "Ignorer"], "timeout": 30},
+                  {"id": 31, "type": "ask", "ask": "d4", "message": "Sans titre ni délai", "answers": ["Oui"]},
+                  {"id": 32, "type": "ask", "ask": "e5", "message": "Sans réponse", "answers": []},
+                  {"id": 33, "type": "ask", "message": "Sans jeton", "answers": ["Oui"]}
+                ]}
+                """.trimIndent()
+            )
+        )
+        assertEquals(
+            listOf(
+                TvCommand.Ask(30, "a1b2c3", "Sonnette", "On sonne au portail. Ouvrir ?", listOf("Ouvrir", "Ignorer"), 30),
+                TvCommand.Ask(31, "d4", "", "Sans titre ni délai", listOf("Oui"), 0),
+            ),
+            driver().changes("4").commands,
+        )
+    }
+
+    @Test
+    fun `answer envoie le corps du contrat`() = runBlocking {
+        server.enqueue(json("""{"ok": true}"""))
+        driver().answer("a1b2c3", "Ouvrir")
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("answer", request.requestUrl!!.queryParameter("action"))
+        assertEquals("cle-de-la-tv", request.getHeader("X-JEETVBE-KEY"))
+        assertEquals("""{"ask":"a1b2c3","answer":"Ouvrir"}""", request.body.readUtf8())
+    }
+
+    @Test
+    fun `answer - 404 et 422 avec leur code HTTP`() {
+        server.enqueue(json("""{"error": "Question inconnue ou expirée"}""", code = 404))
+        server.enqueue(json("""{"error": "Réponse non proposée"}""", code = 422))
+        val d = driver()
+        val expired = assertThrowsSuspend<JeedomException> { d.answer("x", "Oui") }
+        assertEquals(404, expired.httpCode)
+        assertEquals("Question inconnue ou expirée", expired.message)
+        val refused = assertThrowsSuspend<JeedomException> { d.answer("x", "Peut-être") }
+        assertEquals(422, refused.httpCode)
+    }
+
     // --- Erreurs -------------------------------------------------------------------------------
 
     @Test

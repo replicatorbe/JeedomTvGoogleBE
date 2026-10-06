@@ -8,6 +8,8 @@ import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Overlay
 import be.jeedomtv.model.PendingAction
+import be.jeedomtv.model.Question
+import be.jeedomtv.model.QuestionStatus
 import be.jeedomtv.model.Screen
 import be.jeedomtv.model.SettingsRepository
 import be.jeedomtv.model.Tile
@@ -90,6 +92,18 @@ class AppController(
     /** Sélection de l'application avant l'ouverture du panneau, rendue à sa fermeture. */
     private var panelReturn: PanelReturn? = null
 
+    /** Compte à rebours de la question en cours. */
+    private var questionTicker: Job? = null
+
+    /** Affichage du résultat de la réponse, puis fermeture de la question. */
+    private var questionResultTimer: Job? = null
+
+    /** La question a ouvert l'activité (pas de superposition possible) : on la referme ensuite. */
+    private var questionOpenedActivity = false
+
+    /** Fermeture automatique du panneau suspendue le temps d'une question posée par-dessus. */
+    private var panelPausedByQuestion = false
+
     /** Au lancement : configuration enregistrée → connexion, sinon écran de configuration. */
     fun start() {
         launchExclusive {
@@ -116,6 +130,8 @@ class AppController(
     /** Retourne true si la commande a été traitée (l'activité consomme alors la touche). */
     fun onCommand(command: RemoteCommand): Boolean {
         val current = state.value
+        // Une question passe au-dessus de tout : elle reçoit les touches, où qu'elle s'affiche.
+        current.question?.let { return onQuestionCommand(command, it) }
         // Panneau en superposition : c'est lui qui a le focus, pas l'activité.
         if (current.overlay is Overlay.Panel) return onPanelCommand(command, current)
         // L'utilisateur a repris la main : un affichage temporaire devient définitif.
@@ -132,6 +148,14 @@ class AppController(
         update { it.copy(uiVisible = visible, foregroundRequested = it.foregroundRequested && !visible) }
         // L'application complète est affichée : la superposition n'a plus lieu d'être.
         if (visible && state.value.overlay != Overlay.None) dismissOverlay(restoreSelection = false)
+        // Une question suit l'écran : dans l'application si elle est affichée, sinon par-dessus.
+        val question = state.value.question
+        if (question != null) {
+            val inOverlay = !visible && overlayPermission.granted()
+            if (question.inOverlay != inOverlay && (visible || inOverlay)) {
+                update { it.copy(question = it.question?.copy(inOverlay = inOverlay)) }
+            }
+        }
     }
 
     /** La TV allume ou éteint son écran (sortie ou entrée en veille). */
@@ -308,7 +332,7 @@ class AppController(
             is TvCommand.Show -> show(command)
             is TvCommand.Notify -> notify(command)
             is TvCommand.Exit -> exit()
-            is TvCommand.Ask -> Unit // Questions : à venir.
+            is TvCommand.Ask -> ask(command)
         }
     }
 
@@ -417,6 +441,7 @@ class AppController(
     }
 
     private fun exit() {
+        if (state.value.question != null) closeQuestion()
         cancelAutoReturn()
         if (state.value.overlay != Overlay.None) dismissOverlay(restoreSelection = true)
         // Déjà en arrière-plan : rien à quitter.
@@ -515,6 +540,149 @@ class AppController(
                 foregroundRequested = !it.uiVisible,
             )
         }
+    }
+
+    // --- Questions de Jeedom -----------------------------------------------------------------
+
+    /**
+     * Question d'un bloc « Demander » : dans l'application si elle est affichée, sinon par-dessus
+     * la vidéo (permission accordée), sinon en ouvrant l'activité. Elle remplace la précédente.
+     */
+    private fun ask(command: TvCommand.Ask) {
+        cancelQuestionTimers()
+        val current = state.value
+        val hidden = !current.uiVisible
+        val inOverlay = hidden && overlayPermission.granted()
+        val opensActivity = hidden && !inOverlay
+        questionOpenedActivity = opensActivity || (current.question != null && questionOpenedActivity)
+        // Le panneau reste ouvert derrière la question, sans se fermer pendant qu'on y répond.
+        if (current.overlay is Overlay.Panel) {
+            overlayTimer?.cancel()
+            overlayTimer = null
+            panelPausedByQuestion = true
+        }
+        val timeout = command.timeoutSec.takeIf { it > 0 } ?: DEFAULT_QUESTION_TIMEOUT_S
+        update {
+            it.copy(
+                question = Question(
+                    ask = command.ask,
+                    title = command.title,
+                    message = command.message,
+                    answers = command.answers,
+                    timeoutSec = timeout,
+                    remainingSec = timeout,
+                    inOverlay = inOverlay,
+                ),
+                foregroundRequested = it.foregroundRequested || opensActivity,
+            )
+        }
+        startQuestionCountdown()
+    }
+
+    /** Une seconde de moins à chaque tick ; à zéro, la question se ferme sans réponse. */
+    private fun startQuestionCountdown() {
+        questionTicker?.cancel()
+        questionTicker = scope.launch {
+            while (true) {
+                delay(1_000)
+                val question = state.value.question ?: return@launch
+                if (question.status != QuestionStatus.Choosing) return@launch
+                val remaining = question.remainingSec - 1
+                if (remaining <= 0) {
+                    questionTicker = null
+                    closeQuestion()
+                    return@launch
+                }
+                update { it.copy(question = it.question?.copy(remainingSec = remaining)) }
+            }
+        }
+    }
+
+    /**
+     * ◀ ▶ (et ▲ ▼) changent de réponse, 1 à N répondent directement, OK envoie, Retour ferme
+     * sans répondre. Les touches ne prolongent pas le délai.
+     */
+    private fun onQuestionCommand(command: RemoteCommand, question: Question): Boolean {
+        if (question.status != QuestionStatus.Choosing) {
+            // Envoi en cours ou résultat affiché : seul Retour agit (fermeture immédiate).
+            if (command == RemoteCommand.Back) closeQuestion()
+            return true
+        }
+        val last = question.answers.lastIndex
+        when (command) {
+            RemoteCommand.Left, RemoteCommand.Up -> selectAnswer((question.selected - 1).coerceAtLeast(0))
+            RemoteCommand.Right, RemoteCommand.Down -> selectAnswer((question.selected + 1).coerceAtMost(last))
+            RemoteCommand.Ok -> sendAnswer(question, question.selected)
+            is RemoteCommand.Digit -> if (command.value in 1..question.answers.size) sendAnswer(question, command.value - 1)
+            RemoteCommand.Back -> closeQuestion()
+            else -> Unit // CH+/CH-, Menu : la question garde la main.
+        }
+        return true
+    }
+
+    private fun selectAnswer(index: Int) {
+        update { it.copy(question = it.question?.copy(selected = index)) }
+    }
+
+    /** Envoie la réponse ; le résultat reste affiché ~2 s, puis la question se ferme. */
+    private fun sendAnswer(question: Question, index: Int) {
+        val target = driver ?: return
+        val answer = question.answers[index]
+        questionTicker?.cancel()
+        questionTicker = null
+        update { it.copy(question = question.copy(selected = index, status = QuestionStatus.Sending)) }
+        // Envoi jamais annulé : une question remplacée entre-temps n'empêche pas la réponse d'arriver.
+        scope.launch {
+            val status = try {
+                target.answer(question.ask, answer)
+                QuestionStatus.Sent(answer)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: JeedomException) {
+                QuestionStatus.Failed(
+                    when (e.httpCode) {
+                        404 -> "Question expirée"
+                        422 -> "Réponse refusée"
+                        else -> e.message ?: ANSWER_ERROR
+                    }
+                )
+            } catch (e: Exception) {
+                QuestionStatus.Failed(ANSWER_ERROR)
+            }
+            if (state.value.question?.ask != question.ask) return@launch // Remplacée ou fermée.
+            update { it.copy(question = it.question?.copy(status = status)) }
+            questionResultTimer = scope.launch {
+                delay(QUESTION_RESULT_MS)
+                questionResultTimer = null
+                if (state.value.question?.ask == question.ask) closeQuestion()
+            }
+        }
+    }
+
+    /** Ferme la question ; ce qui était derrière (pages, panneau, réglage) revient tel quel. */
+    private fun closeQuestion() {
+        cancelQuestionTimers()
+        val openedActivity = questionOpenedActivity
+        questionOpenedActivity = false
+        update {
+            if (openedActivity) {
+                // La question avait ouvert l'application : retour à l'application d'avant.
+                it.copy(question = null, exitRequested = it.uiVisible, foregroundRequested = false)
+            } else {
+                it.copy(question = null)
+            }
+        }
+        if (panelPausedByQuestion) {
+            panelPausedByQuestion = false
+            if (state.value.overlay is Overlay.Panel) restartOverlayTimer(PANEL_IDLE_MS)
+        }
+    }
+
+    private fun cancelQuestionTimers() {
+        questionTicker?.cancel()
+        questionTicker = null
+        questionResultTimer?.cancel()
+        questionResultTimer = null
     }
 
     // --- État signalé à Jeedom ---------------------------------------------------------------
@@ -794,6 +962,14 @@ class AppController(
         const val BANNER_DURATION_MS = 8_000L
         const val STATE_DEBOUNCE_MS = 300L
         const val MAX_HANDLED_IDS = 100
+
+        /** Question sans délai fourni par le plugin. */
+        const val DEFAULT_QUESTION_TIMEOUT_S = 60
+
+        /** Durée d'affichage du résultat d'une réponse. */
+        const val QUESTION_RESULT_MS = 2_000L
+
+        const val ANSWER_ERROR = "Réponse impossible"
 
         /** Panneau sans durée, ou touché par l'utilisateur : fermé après une minute sans touche. */
         const val PANEL_IDLE_MS = 60_000L

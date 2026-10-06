@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +39,11 @@ fun AppView(controller: AppController) {
             Screen.Pages -> PagesView(state)
         }
         state.banner?.let { BannerView(it, Modifier.align(Alignment.TopCenter).padding(top = 24.dp)) }
+        // Question de Jeedom dans l'application (en superposition, c'est une fenêtre à part).
+        state.question?.takeIf { !it.inOverlay }?.let { question ->
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
+            QuestionDialog(question, Modifier.align(Alignment.Center))
+        }
     }
 }
 

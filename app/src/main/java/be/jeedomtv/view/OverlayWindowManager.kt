@@ -7,9 +7,13 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.WindowManager
 import android.widget.FrameLayout
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
@@ -37,6 +41,7 @@ import kotlinx.coroutines.launch
  *
  * - Bandeau : fenêtre ni focusable ni tactile, les touches vont toujours à la vidéo.
  * - Panneau : fenêtre focusable en bas de l'écran ; ses touches passent par le contrôleur.
+ * - Question : fenêtre focusable au centre, toujours au-dessus du bandeau et du panneau.
  *
  * Vit dans l'Application (comme le contrôleur), jamais dans l'activité.
  */
@@ -49,6 +54,7 @@ class OverlayWindowManager(
 
     private var notice: OverlayWindow? = null
     private var panel: OverlayWindow? = null
+    private var question: OverlayWindow? = null
 
     fun start() {
         scope.launch {
@@ -56,6 +62,21 @@ class OverlayWindowManager(
                 .map { kindOf(it.overlay) }
                 .distinctUntilChanged()
                 .collect { show(it) }
+        }
+        scope.launch {
+            controller.state
+                .map { it.question?.inOverlay == true }
+                .distinctUntilChanged()
+                .collect { showQuestion(it) }
+        }
+    }
+
+    private fun showQuestion(visible: Boolean) {
+        Log.i(TAG, "question en superposition : $visible")
+        if (!visible) {
+            question = question?.let { remove(it); null }
+        } else if (question == null) {
+            question = add(questionWindow())
         }
     }
 
@@ -74,7 +95,36 @@ class OverlayWindowManager(
         when (kind) {
             Kind.None -> Unit
             Kind.Notice -> if (notice == null) notice = add(noticeWindow())
-            Kind.Panel -> if (panel == null) panel = add(panelWindow())
+            Kind.Panel -> if (panel == null) {
+                panel = add(panelWindow())
+                // Une question déjà affichée doit rester au-dessus (et garder le focus).
+                if (question != null) {
+                    question = question?.let { remove(it); null }
+                    question = add(questionWindow())
+                }
+            }
+        }
+    }
+
+    private fun questionWindow(): OverlayWindow {
+        val keys = RemoteKeyForwarder { controller.onCommand(it) }
+        val params = baseParams().apply {
+            // Focusable ; la vidéo est légèrement assombrie pour que la question ressorte.
+            flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            dimAmount = QUESTION_DIM
+            // Plein écran (transparent autour de la boîte) : avec WRAP_CONTENT, Compose mesurait
+            // la boîte trop étroite et écrasait les réponses.
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+        }
+        val root = OverlayRoot(context, onKey = keys::dispatch).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        return OverlayWindow(root, params, onRemoved = keys::clear) { state ->
+            state.question?.takeIf { it.inOverlay }?.let {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { QuestionDialog(it) }
+            }
         }
     }
 
@@ -168,6 +218,9 @@ class OverlayWindowManager(
 
         /** Panneau sur un peu plus de la moitié basse de l'écran : la vidéo reste visible au-dessus. */
         const val PANEL_HEIGHT_RATIO = 0.6f
+
+        /** Assombrissement de la vidéo derrière une question. */
+        const val QUESTION_DIM = 0.4f
     }
 }
 

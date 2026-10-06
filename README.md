@@ -22,6 +22,7 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **Afficher une page** : pendant un film, en [superposition](#superposition-par-dessus-la-vidéo), sans interrompre la vidéo ; sinon dans l'application, avec retour automatique après une durée. Une touche de la télécommande annule le retour ;
   - **Message** : bandeau d'environ 8 s, dans l'application ou par-dessus la vidéo ;
   - **Quitter** : la superposition se ferme, ou l'application passe en arrière-plan.
+  - **Question** (bloc « Demander » d'un scénario) : on répond à la télécommande, le scénario continue selon la réponse. Voir [Questions de Jeedom](#questions-de-jeedom).
 - Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
@@ -215,3 +216,37 @@ Limites :
 - Le panneau prend le focus de la télécommande : tant qu'il est affiché, les touches ne vont plus à la vidéo. La plupart des lecteurs continuent leur lecture, mais une application qui se met en pause à la perte du focus le ferait.
 - L'écran d'accueil de Google TV compte aussi comme une « application cachée » : le panneau s'y affiche par-dessus.
 - Le panneau ne réagit qu'à la télécommande (pas au toucher ni à la souris).
+
+## Questions de Jeedom
+
+Le bloc **Demander** d'un scénario Jeedom peut poser une question à la TV et attendre la réponse, donnée à la télécommande :
+
+- dans l'application si elle est affichée ;
+- par-dessus la vidéo sinon (même permission que la superposition) : la vidéo continue ;
+- sans cette permission, l'application s'ouvre, puis se referme après la réponse.
+
+| Touche | Action |
+|---|---|
+| ◀ ▶ (ou ▲ ▼) | Choisir une réponse (la première est sélectionnée au départ) |
+| OK | Envoyer la réponse sélectionnée |
+| 1 à N | Envoyer directement la réponse N |
+| Retour | Fermer sans répondre |
+
+Une barre de compte à rebours montre le temps restant ; à la fin, la question se ferme d'elle-même et le scénario reçoit « Aucune réponse ». Les touches ne prolongent pas le délai. Après l'envoi, la TV affiche environ 2 s « Réponse envoyée : … », ou « Question expirée » / « Réponse refusée » si Jeedom ne l'accepte plus.
+
+La question passe au-dessus de tout (pages, réglage en cours, panneau, bandeau) ; à sa fermeture, ce qui était affiché derrière revient. Une nouvelle question remplace la précédente.
+
+Exemple de scénario « Portail » (déclencheur : la sonnette du portail) :
+
+```
+DEMANDER  « On sonne au portail. Ouvrir ? »
+          réponses : Ouvrir;Ignorer
+          à : #[Salon][TV salon][Question]#
+          dans : reponse_portail    délai : 30 s
+SI $reponse_portail == "Ouvrir"
+ALORS
+  #[Extérieur][Portail][Ouvrir]#
+```
+
+Dans le bloc Demander, choisir la commande **Question** de l'équipement de la TV. Exécutée hors d'un bloc Demander (sans réponses), la commande Question se comporte comme Message.
+
