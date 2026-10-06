@@ -69,7 +69,7 @@ fun PagesView(state: AppState) {
                 }
             }
             Spacer(Modifier.height(12.dp))
-            HelpBanner(helpText(state), trailing = appVersionLabel)
+            HelpBanner(helpText(state))
         }
 
         // Voile sur la grille : le panneau de réglage ou la confirmation ressort nettement.
@@ -251,38 +251,24 @@ private fun Notice(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** Rappel des touches ; [trailing] : mention discrète à droite (version de l'application). */
+/** Rappel des touches : toute la largeur lui revient (la version est sur l'écran de configuration). */
 @Composable
-internal fun HelpBanner(text: String, trailing: String? = null) {
-    Row(
+internal fun HelpBanner(text: String) {
+    Text(
+        text,
+        color = JeedomTvColors.TextMuted,
+        fontSize = 16.sp,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
             .fillMaxWidth()
             .background(JeedomTvColors.Surface, RoundedCornerShape(8.dp))
             .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text,
-            color = JeedomTvColors.TextMuted,
-            fontSize = 16.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (trailing != null) {
-            Text(
-                trailing,
-                color = JeedomTvColors.TextMuted.copy(alpha = 0.6f),
-                fontSize = 13.sp,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 16.dp),
-            )
-        }
-    }
+    )
 }
 
-/** « Jeedom TV 0.4.0 ». */
+/** « Jeedom TV 0.4.0 », affiché sur l'écran de configuration. */
 internal val appVersionLabel: String
     get() = "Jeedom TV ${BuildConfig.VERSION_NAME}"
 
