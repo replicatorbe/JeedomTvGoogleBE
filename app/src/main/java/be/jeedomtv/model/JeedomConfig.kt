@@ -6,8 +6,4 @@ data class JeedomConfig(
     val host: String,
     /** Clé de la TV, affichée sur la page de l'équipement `jeetvbe`. */
     val key: String,
-) {
-    companion object {
-        const val DEFAULT_HOST = "192.168.1.10"
-    }
-}
+)

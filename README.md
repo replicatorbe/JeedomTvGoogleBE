@@ -91,7 +91,7 @@ Ensuite, appliquer les réglages de la section [Optimiser la TV](#optimiser-la-t
 
 Au premier lancement, l'écran de configuration demande :
 
-- l'adresse de Jeedom (par défaut `192.168.1.10`, un port est accepté : `jeedom.local:8080`) ;
+- l'adresse de Jeedom (par exemple `192.168.1.10` ; un port est accepté : `jeedom.local:8080`) ;
 - la clé de la TV, affichée sur la page de l'équipement Jeedom TV correspondant dans le plugin.
 
 La configuration n'est enregistrée qu'après une connexion réussie.
@@ -100,7 +100,7 @@ En build debug uniquement, la configuration peut aussi être passée par adb, ce
 
 ```bash
 adb shell am start -n be.jeedomtv/.view.MainActivity \
-  --es jeedom_host 192.168.1.10 --es jeedom_key '<CLE_DE_LA_TV>'
+  --es jeedom_host <IP_JEEDOM> --es jeedom_key '<CLE_DE_LA_TV>'
 ```
 
 ## Optimiser la TV (adb, sans root)

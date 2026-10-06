@@ -57,7 +57,7 @@ import be.jeedomtv.model.JeedomConfig
 fun SetupView(state: AppState, controller: AppController) {
     val initial = state.config
     // Brouillon du formulaire : état purement visuel, réinitialisé si la config du modèle change.
-    var host by rememberSaveable(initial) { mutableStateOf(initial?.host ?: JeedomConfig.DEFAULT_HOST) }
+    var host by rememberSaveable(initial) { mutableStateOf(initial?.host.orEmpty()) }
     var key by rememberSaveable(initial) { mutableStateOf(initial?.key.orEmpty()) }
     var validationError by remember { mutableStateOf<String?>(null) }
 
