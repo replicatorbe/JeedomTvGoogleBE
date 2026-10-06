@@ -59,7 +59,9 @@ fun SetupView(state: AppState, controller: AppController) {
     val initial = state.config
     // Brouillon du formulaire : état purement visuel, réinitialisé si la config du modèle change.
     var host by rememberSaveable(initial) { mutableStateOf(initial?.host.orEmpty()) }
-    var key by rememberSaveable(initial) { mutableStateOf(initial?.key.orEmpty()) }
+    // Clé enregistrée masquée tant qu'on n'y touche pas (null = pas encore modifiée).
+    var keyDraft by rememberSaveable(initial) { mutableStateOf<String?>(null) }
+    val keyField = KeyField(saved = initial?.key.orEmpty(), draft = keyDraft)
     var validationError by remember { mutableStateOf<String?>(null) }
 
     val firstField = remember { FocusRequester() }
@@ -68,11 +70,11 @@ fun SetupView(state: AppState, controller: AppController) {
     fun submit() {
         validationError = when {
             host.isBlank() -> "L'adresse de Jeedom est obligatoire."
-            key.isBlank() -> "La clé de la TV est obligatoire."
+            keyField.value.isBlank() -> "La clé de la TV est obligatoire."
             else -> null
         }
         if (validationError == null) {
-            controller.submitSetup(JeedomConfig(host = host.trim(), key = key.trim()))
+            controller.submitSetup(JeedomConfig(host = host.trim(), key = keyField.value.trim()))
         }
     }
 
@@ -107,8 +109,8 @@ fun SetupView(state: AppState, controller: AppController) {
             )
             FormField(
                 label = "Clé de la TV",
-                value = key,
-                onValueChange = { key = it },
+                value = keyField.shown,
+                onValueChange = { keyDraft = keyField.edit(it).draft },
                 imeAction = ImeAction.Done,
                 onDone = ::submit,
             )
