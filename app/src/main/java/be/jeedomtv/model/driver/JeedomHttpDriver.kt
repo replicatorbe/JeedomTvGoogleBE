@@ -30,6 +30,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -106,7 +107,14 @@ class JeedomHttpDriver internal constructor(
         })
     }
 
-    override suspend fun image(id: String): ByteArray = TODO("Images")
+    override suspend fun image(id: String): ByteArray =
+        call("image", client, extraQuery = "id" to id, accept = "image/jpeg, image/png") { body ->
+            // Limite de 5 Mo : une TV de 2 Go ne doit pas avaler une image démesurée.
+            if (body.contentLength() > MAX_IMAGE_BYTES) throw JeedomException("Image trop grande")
+            val source = body.source()
+            if (source.request(MAX_IMAGE_BYTES + 1)) throw JeedomException("Image trop grande")
+            source.buffer.readByteArray()
+        }
 
     // --- HTTP -----------------------------------------------------------------------------------
 
@@ -121,7 +129,20 @@ class JeedomHttpDriver internal constructor(
         httpClient: OkHttpClient,
         extraQuery: Pair<String, String>? = null,
         body: String? = null,
-    ): String {
+    ): String = call(action, httpClient, extraQuery, body) { it.string() }
+
+    /**
+     * Appel authentifié ; [read] lit le corps d'une réponse réussie. Les erreurs sont traduites
+     * en exceptions du contrat [JeedomDriver] (corps JSON `error` pour les codes d'erreur).
+     */
+    private suspend fun <T> call(
+        action: String,
+        httpClient: OkHttpClient,
+        extraQuery: Pair<String, String>? = null,
+        body: String? = null,
+        accept: String = "application/json",
+        read: (ResponseBody) -> T,
+    ): T {
         val base = baseUrl ?: throw JeedomException("Adresse de Jeedom invalide (${config.host})")
         val url = base.newBuilder()
             .addPathSegments(API_PATH)
@@ -131,21 +152,25 @@ class JeedomHttpDriver internal constructor(
         val request = Request.Builder()
             .url(url)
             .header(KEY_HEADER, config.key)
-            .header("Accept", "application/json")
+            .header("Accept", accept)
             .apply { if (body != null) post(body.toRequestBody(JSON_MEDIA_TYPE)) }
             .build()
         val call = httpClient.newCall(request)
         return runInterruptible(Dispatchers.IO) {
             try {
                 call.execute().use { response ->
-                    val text = response.body?.string().orEmpty()
+                    val responseBody = response.body
                     when {
                         response.code == 401 -> throw AuthenticationException("Clé refusée par Jeedom")
-                        !response.isSuccessful -> throw JeedomException(
-                            errorMessage(text) ?: "Erreur de Jeedom (HTTP ${response.code})",
-                            httpCode = response.code,
-                        )
-                        else -> text
+                        !response.isSuccessful -> {
+                            val text = responseBody?.string().orEmpty()
+                            throw JeedomException(
+                                errorMessage(text) ?: "Erreur de Jeedom (HTTP ${response.code})",
+                                httpCode = response.code,
+                            )
+                        }
+                        responseBody == null -> throw JeedomException("Réponse de Jeedom vide")
+                        else -> read(responseBody)
                     }
                 }
             } catch (e: SocketTimeoutException) {
@@ -177,6 +202,9 @@ class JeedomHttpDriver internal constructor(
         const val API_PATH = "plugins/jeetvbe/core/php/api.php"
         const val KEY_HEADER = "X-JEETVBE-KEY"
         const val CHANGES_READ_TIMEOUT_S = 40L
+
+        /** Taille maximale d'une image jointe (contrat : 5 Mo). */
+        const val MAX_IMAGE_BYTES = 5L * 1024 * 1024
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         private val json = Json {
@@ -310,13 +338,17 @@ private data class CommandDto(
     val ask: String? = null,
     val answers: List<JsonElement>? = null,
     val timeout: Double? = null,
+    val image: String? = null,
 ) {
+    private val imageId: String?
+        get() = image?.takeIf { it.isNotBlank() }
+
     /** Type inconnu ou `show` sans page : ignoré, comme le demande le contrat. */
     fun toCommand(): TvCommand? = when (type) {
         "show" -> page?.takeIf { it.isNotBlank() }?.let {
             TvCommand.Show(id, it, (duration ?: 0.0).toInt().coerceAtLeast(0))
         }
-        "notify" -> TvCommand.Notify(id, title.orEmpty(), message.orEmpty())
+        "notify" -> TvCommand.Notify(id, title.orEmpty(), message.orEmpty(), imageId)
         "exit" -> TvCommand.Exit(id)
         // Question sans jeton ou sans réponse possible : inutilisable, ignorée.
         "ask" -> {
@@ -329,6 +361,7 @@ private data class CommandDto(
                     message = message.orEmpty(),
                     answers = choices,
                     timeoutSec = (timeout ?: 0.0).toInt().coerceAtLeast(0),
+                    image = imageId,
                 )
             }
         }

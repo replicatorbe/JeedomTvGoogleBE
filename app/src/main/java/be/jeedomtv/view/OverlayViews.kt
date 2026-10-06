@@ -34,7 +34,9 @@ private val PanelBackground = JeedomTvColors.Background.copy(alpha = 0.95f)
 @Composable
 fun OverlayNoticeView(state: AppState) {
     val notice = state.overlay as? Overlay.Notice ?: return
-    BannerView(notice.banner, Modifier.padding(8.dp))
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        BannerView(notice.banner, Modifier.padding(8.dp))
+    }
 }
 
 /**

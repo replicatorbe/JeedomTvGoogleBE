@@ -1,6 +1,12 @@
 package be.jeedomtv.view
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,17 +57,36 @@ fun AppView(controller: AppController) {
 @Composable
 internal fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(12.dp)
-    Column(
+    val thumbnail by rememberDecodedImage(banner.imageBytes, maxWidth = THUMBNAIL_MAX_PX, maxHeight = THUMBNAIL_MAX_PX)
+    Row(
         modifier
             .widthIn(max = 960.dp)
             .background(JeedomTvColors.Overlay, shape)
             .border(2.dp, JeedomTvColors.Accent, shape)
-            .padding(horizontal = 32.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 24.dp, vertical = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (banner.title.isNotBlank()) {
-            Text(banner.title, color = JeedomTvColors.Accent, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        // Vignette de l'image jointe (photo du portier…), à gauche du texte.
+        thumbnail?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .height(120.dp)
+                    .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
+                    .clip(RoundedCornerShape(8.dp)),
+            )
         }
-        Text(banner.message, color = JeedomTvColors.Text, fontSize = 28.sp, lineHeight = 34.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (banner.title.isNotBlank()) {
+                Text(banner.title, color = JeedomTvColors.Accent, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(banner.message, color = JeedomTvColors.Text, fontSize = 28.sp, lineHeight = 34.sp)
+        }
     }
 }
+
+/** Plus grand côté visé au décodage d'une vignette de bandeau. */
+private const val THUMBNAIL_MAX_PX = 480

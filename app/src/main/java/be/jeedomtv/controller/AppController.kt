@@ -106,6 +106,12 @@ class AppController(
     /** Fermeture automatique du panneau suspendue le temps d'une question posée par-dessus. */
     private var panelPausedByQuestion = false
 
+    /** Téléchargement de l'image jointe à la question en cours. */
+    private var questionImageJob: Job? = null
+
+    /** Téléchargement de l'image jointe au bandeau en cours (dans l'application ou par-dessus). */
+    private var bannerImageJob: Job? = null
+
     /** Au lancement : configuration enregistrée → connexion, sinon écran de configuration. */
     fun start() {
         launchExclusive {
@@ -421,7 +427,7 @@ class AppController(
      */
     private fun notify(command: TvCommand.Notify) {
         val current = state.value
-        val banner = Banner(command.title, command.message)
+        val banner = Banner(command.title, command.message, image = command.image)
         if (!current.uiVisible && !current.foregroundRequested) {
             when {
                 // Le panneau affiche le bandeau en son sein.
@@ -429,16 +435,68 @@ class AppController(
                 // Bandeau en superposition, sans focus : la vidéo ne remarque rien.
                 overlayPermission.granted() -> {
                     showNoticeOverlay(banner)
+                    loadBannerImage(banner)
                     return
                 }
                 else -> return
             }
         }
         update { it.copy(banner = banner) }
+        loadBannerImage(banner)
         bannerTimer?.cancel()
         bannerTimer = scope.launch {
             delay(BANNER_DURATION_MS)
+            bannerImageJob?.cancel()
             update { it.copy(banner = null) }
+        }
+    }
+
+    // --- Images jointes -----------------------------------------------------------------------
+
+    /**
+     * Télécharge une image pendant que l'ordre est déjà affiché ; [apply] la pose une fois prête.
+     * Un échec laisse simplement l'affichage sans image, sans message.
+     */
+    private fun loadImage(id: String, apply: (ByteArray) -> Unit): Job? {
+        val target = driver ?: return null
+        return scope.launch {
+            val bytes = try {
+                target.image(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@launch
+            }
+            apply(bytes)
+        }
+    }
+
+    /** Image du bandeau [banner] : posée seulement s'il est toujours affiché. */
+    private fun loadBannerImage(banner: Banner) {
+        bannerImageJob?.cancel()
+        val id = banner.image ?: run {
+            bannerImageJob = null
+            return
+        }
+        bannerImageJob = loadImage(id) { bytes ->
+            update { s ->
+                val notice = s.overlay as? Overlay.Notice
+                s.copy(
+                    banner = s.banner?.takeIf { it === banner }?.copy(imageBytes = bytes) ?: s.banner,
+                    overlay = notice?.takeIf { it.banner === banner }
+                        ?.let { Overlay.Notice(it.banner.copy(imageBytes = bytes)) } ?: s.overlay,
+                )
+            }
+        }
+    }
+
+    /** Image de la question [ask] : posée seulement si cette question est toujours affichée. */
+    private fun loadQuestionImage(ask: String, id: String?) {
+        questionImageJob?.cancel()
+        questionImageJob = id?.let {
+            loadImage(it) { bytes ->
+                update { s -> s.copy(question = s.question?.takeIf { q -> q.ask == ask }?.copy(imageBytes = bytes) ?: s.question) }
+            }
         }
     }
 
@@ -457,6 +515,7 @@ class AppController(
     /** Bandeau par-dessus la vidéo ; un nouvel ordre remplace la superposition courante. */
     private fun showNoticeOverlay(banner: Banner) {
         if (state.value.overlay is Overlay.Panel) dismissOverlay(restoreSelection = true)
+        bannerImageJob?.cancel()
         update { it.copy(overlay = Overlay.Notice(banner)) }
         restartOverlayTimer(BANNER_DURATION_MS)
     }
@@ -491,6 +550,7 @@ class AppController(
     private fun dismissOverlay(restoreSelection: Boolean) {
         overlayTimer?.cancel()
         overlayTimer = null
+        if (state.value.overlay is Overlay.Notice) bannerImageJob?.cancel()
         val back = panelReturn
         panelReturn = null
         update { s ->
@@ -574,10 +634,13 @@ class AppController(
                     timeoutSec = timeout,
                     remainingSec = timeout,
                     inOverlay = inOverlay,
+                    image = command.image,
                 ),
                 foregroundRequested = it.foregroundRequested || opensActivity,
             )
         }
+        // La question s'affiche tout de suite ; la photo la rejoint dès qu'elle est téléchargée.
+        loadQuestionImage(command.ask, command.image)
         startQuestionCountdown()
     }
 
@@ -683,6 +746,8 @@ class AppController(
     }
 
     private fun cancelQuestionTimers() {
+        questionImageJob?.cancel()
+        questionImageJob = null
         questionTicker?.cancel()
         questionTicker = null
         questionResultTimer?.cancel()

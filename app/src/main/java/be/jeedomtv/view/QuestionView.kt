@@ -4,6 +4,12 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +41,10 @@ import be.jeedomtv.model.QuestionStatus
 
 private val DialogShape = RoundedCornerShape(20.dp)
 private val AnswerShape = RoundedCornerShape(14.dp)
+private val PhotoShape = RoundedCornerShape(14.dp)
+
+/** Plus grand côté visé au décodage de la photo : assez pour la moitié d'un écran 1080p. */
+private const val PHOTO_MAX_PX = 1280
 
 /**
  * Question de Jeedom, lisible à 3 m : titre, question en grand, réponses en boutons horizontaux
@@ -43,50 +53,93 @@ private val AnswerShape = RoundedCornerShape(14.dp)
  */
 @Composable
 fun QuestionDialog(question: Question, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .widthIn(min = 560.dp, max = 900.dp)
-            .background(JeedomTvColors.Overlay, DialogShape)
-            .border(3.dp, JeedomTvColors.Accent, DialogShape)
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        if (question.title.isNotBlank()) {
-            Text(question.title, color = JeedomTvColors.Accent, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+    // Photo jointe (portier…) : décodée à la taille utile, hors du thread principal.
+    val photo by rememberDecodedImage(question.imageBytes, maxWidth = PHOTO_MAX_PX, maxHeight = PHOTO_MAX_PX)
+    val image = photo
+    if (image == null) {
+        Column(
+            modifier
+                .widthIn(min = 560.dp, max = 900.dp)
+                .background(JeedomTvColors.Overlay, DialogShape)
+                .border(3.dp, JeedomTvColors.Accent, DialogShape)
+                .padding(horizontal = 48.dp, vertical = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            QuestionContent(question)
         }
-        Text(
-            question.message,
-            color = JeedomTvColors.Text,
-            fontSize = 36.sp,
-            lineHeight = 44.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-        )
-        when (val status = question.status) {
-            QuestionStatus.Choosing -> {
-                Answers(question)
-                Countdown(question)
-                Text(
-                    "◀ ▶ ou 1-${question.answers.size} : choisir · OK : répondre · Retour : fermer",
-                    color = JeedomTvColors.TextMuted,
-                    fontSize = 16.sp,
-                )
+    } else {
+        // Avec photo : la photo en grand à gauche (~45 %), la question et les réponses à droite.
+        Row(
+            modifier
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 1400.dp)
+                .background(JeedomTvColors.Overlay, DialogShape)
+                .border(3.dp, JeedomTvColors.Accent, DialogShape)
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .weight(0.45f)
+                    .heightIn(max = 460.dp)
+                    .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
+                    .clip(PhotoShape),
+            )
+            Column(
+                Modifier.weight(0.55f),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                QuestionContent(question)
             }
-            QuestionStatus.Sending -> {
-                Answers(question)
-                Text("Envoi de la réponse…", color = JeedomTvColors.TextMuted, fontSize = 24.sp)
-            }
-            is QuestionStatus.Sent ->
-                Text(
-                    "Réponse envoyée : ${status.answer}",
-                    color = JeedomTvColors.Accent,
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            is QuestionStatus.Failed ->
-                Text(status.message, color = JeedomTvColors.Error, fontSize = 30.sp, fontWeight = FontWeight.Bold)
         }
+    }
+}
+
+/** Titre, question, réponses, compte à rebours ou résultat. */
+@Composable
+private fun QuestionContent(question: Question) {
+    if (question.title.isNotBlank()) {
+        Text(question.title, color = JeedomTvColors.Accent, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+    }
+    Text(
+        question.message,
+        color = JeedomTvColors.Text,
+        fontSize = 36.sp,
+        lineHeight = 44.sp,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+    )
+    when (val status = question.status) {
+        QuestionStatus.Choosing -> {
+            Answers(question)
+            Countdown(question)
+            Text(
+                "◀ ▶ ou 1-${question.answers.size} : choisir · OK : répondre · Retour : fermer",
+                color = JeedomTvColors.TextMuted,
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
+        QuestionStatus.Sending -> {
+            Answers(question)
+            Text("Envoi de la réponse…", color = JeedomTvColors.TextMuted, fontSize = 24.sp)
+        }
+        is QuestionStatus.Sent ->
+            Text(
+                "Réponse envoyée : ${status.answer}",
+                color = JeedomTvColors.Accent,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+        is QuestionStatus.Failed ->
+            Text(status.message, color = JeedomTvColors.Error, fontSize = 30.sp, fontWeight = FontWeight.Bold)
     }
 }
 

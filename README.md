@@ -253,3 +253,23 @@ ALORS
 
 Dans le bloc Demander, choisir la commande **Question** de l'équipement de la TV. Exécutée hors d'un bloc Demander (sans réponses), la commande Question se comporte comme Message.
 
+### Avec la photo du portier
+
+Une question ou un message peut porter une image : la photo du portier, pour voir qui sonne avant de répondre. Il suffit d'ajouter `[image=<chemin>]` au texte, typiquement la commande info qui donne le chemin de la dernière photo du portier (Jeedom la remplace par le chemin avant l'exécution ; le marqueur n'est pas affiché) :
+
+```
+DEMANDER  « On sonne au portail. Ouvrir ? [image=#[Devant maison][Portier][Fichier image]#] »
+          réponses : Ignorer;Ouvrir
+          à : #[Salon][TV salon][Question]#
+          dans : reponse_portail    délai : 45 s
+SI $reponse_portail == "Ouvrir"
+ALORS
+  #[Extérieur][Portail][Ouvrir]#
+```
+
+- **Question** : la photo s'affiche en grand à gauche, la question et les réponses à droite.
+- **Message** : une vignette à gauche du texte du bandeau.
+- La question s'affiche aussitôt ; la photo la rejoint dès qu'elle est téléchargée. Si elle ne peut pas l'être (expirée, trop grande, réseau), l'affichage reste sans image.
+- Le plugin copie l'image au moment de l'ordre (une photo suivante ne la remplace pas) et accepte des JPEG ou PNG de 5 Mo au plus. La TV la réduit au décodage pour ménager sa mémoire.
+- Le panneau en superposition affiche le texte d'un message, sans sa vignette.
+

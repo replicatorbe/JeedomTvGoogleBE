@@ -13,7 +13,9 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
+import okio.Buffer
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -331,6 +333,71 @@ class JeedomHttpDriverTest {
         d.exec("s34", TileAction.Run)
         server.takeRequest()
         assertEquals("""{"tile":"s34","action":"run"}""", server.takeRequest().body.readUtf8())
+    }
+
+    @Test
+    fun `ordres avec image, image vide ignoree`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"since": 1, "revision": "r", "changes": [], "commands": [
+                  {"id": 40, "type": "notify", "title": "Portier", "message": "On sonne", "image": "a3f9c2"},
+                  {"id": 41, "type": "ask", "ask": "t", "message": "Ouvrir ?", "answers": ["Ignorer", "Ouvrir"],
+                   "timeout": 45, "image": "b4e1"},
+                  {"id": 42, "type": "notify", "message": "Sans image", "image": null},
+                  {"id": 43, "type": "notify", "message": "Image vide", "image": ""}
+                ]}
+                """.trimIndent()
+            )
+        )
+        assertEquals(
+            listOf(
+                TvCommand.Notify(40, "Portier", "On sonne", "a3f9c2"),
+                TvCommand.Ask(41, "t", "", "Ouvrir ?", listOf("Ignorer", "Ouvrir"), 45, "b4e1"),
+                TvCommand.Notify(42, "", "Sans image", null),
+                TvCommand.Notify(43, "", "Image vide", null),
+            ),
+            driver().changes("0").commands,
+        )
+    }
+
+    @Test
+    fun `image - octets, cle et identifiant`() = runBlocking {
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0, 16)
+        server.enqueue(MockResponse().setHeader("Content-Type", "image/jpeg").setBody(Buffer().write(jpeg)))
+        assertArrayEquals(jpeg, driver().image("a3f9c2"))
+        val request = server.takeRequest()
+        assertEquals("GET", request.method)
+        assertEquals("image", request.requestUrl!!.queryParameter("action"))
+        assertEquals("a3f9c2", request.requestUrl!!.queryParameter("id"))
+        assertEquals("cle-de-la-tv", request.getHeader("X-JEETVBE-KEY"))
+    }
+
+    @Test
+    fun `image - 404 inconnue ou expiree`() {
+        server.enqueue(json("""{"error": "Image inconnue"}""", code = 404))
+        val e = assertThrowsSuspend<JeedomException> { driver().image("x") }
+        assertEquals(404, e.httpCode)
+        assertEquals("Image inconnue", e.message)
+    }
+
+    @Test
+    fun `image - plus de 5 Mo refusee`() {
+        val big = Buffer().write(ByteArray((5 * 1024 * 1024) + 1))
+        server.enqueue(MockResponse().setHeader("Content-Type", "image/jpeg").setBody(big))
+        val e = assertThrowsSuspend<JeedomException> { driver(readTimeoutMs = 10_000).image("x") }
+        assertEquals("Image trop grande", e.message)
+    }
+
+    @Test
+    fun `image - taille annoncee trop grande refusee sans tout lire`() {
+        val big = Buffer().write(ByteArray((5 * 1024 * 1024) + 10))
+        server.enqueue(
+            MockResponse().setHeader("Content-Type", "image/jpeg").setBody(big)
+                .throttleBody(64 * 1024, 1, TimeUnit.SECONDS)
+        )
+        val e = assertThrowsSuspend<JeedomException> { driver().image("x") }
+        assertEquals("Image trop grande", e.message)
     }
 
     // --- Erreurs -------------------------------------------------------------------------------

@@ -132,9 +132,11 @@ class OverlayWindowManager(
         val params = baseParams().apply {
             flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            width = WindowManager.LayoutParams.WRAP_CONTENT
+            // Toute la largeur (le bandeau est centré dedans) : en WRAP_CONTENT, la fenêtre gardait
+            // la largeur du texte seul et écrasait celui-ci quand l'image arrivait.
+            width = WindowManager.LayoutParams.MATCH_PARENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.TOP
             y = (24 * context.resources.displayMetrics.density).toInt()
         }
         return OverlayWindow(OverlayRoot(context, onKey = null), params) { state -> OverlayNoticeView(state) }
