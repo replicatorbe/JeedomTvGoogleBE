@@ -94,6 +94,7 @@ class JeedomHttpDriver internal constructor(
             put("screenOn", state.screenOn)
             // null explicite : « hors écran des pages ».
             put("page", state.page?.let { JsonPrimitive(it) } ?: JsonNull)
+            state.appVersion?.let { put("appVersion", it) }
         }
         post("state", body)
     }

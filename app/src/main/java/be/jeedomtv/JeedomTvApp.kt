@@ -40,7 +40,7 @@ class JeedomTvApp : Application() {
         val driverFactory = JeedomDriverFactory { config -> JeedomHttpDriver(config) }
         // Permission « afficher par-dessus » (appops SYSTEM_ALERT_WINDOW) : relue à chaque ordre.
         val overlayPermission = OverlayPermission { Settings.canDrawOverlays(this) }
-        controller = AppController(model, settings, driverFactory, scope, overlayPermission)
+        controller = AppController(model, settings, driverFactory, scope, overlayPermission, BuildConfig.VERSION_NAME)
 
         controller.start()
         bringToFrontOnRequest()

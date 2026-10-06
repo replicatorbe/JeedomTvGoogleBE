@@ -23,7 +23,8 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **Message** : bandeau d'environ 8 s, dans l'application ou par-dessus la vidéo ;
   - **Quitter** : la superposition se ferme, ou l'application passe en arrière-plan.
   - **Question** (bloc « Demander » d'un scénario) : on répond à la télécommande, le scénario continue selon la réponse. Voir [Questions de Jeedom](#questions-de-jeedom).
-- Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée.
+- Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée, et version de l'application (info `Version app`).
+- La version (« Jeedom TV 0.4.0 ») s'affiche discrètement sur l'écran de configuration et dans le bandeau d'aide des pages.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|

@@ -116,6 +116,8 @@ data class TvState(
     val screenOn: Boolean,
     /** Id de la page affichée ; null hors écran des pages. */
     val page: String?,
+    /** Version de l'application (`versionName`) ; null si inconnue (tests). */
+    val appVersion: String? = null,
 )
 
 /** Réponse de `ping`. */

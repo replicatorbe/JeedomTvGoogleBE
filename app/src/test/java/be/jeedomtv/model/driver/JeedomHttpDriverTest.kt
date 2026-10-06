@@ -248,6 +248,16 @@ class JeedomHttpDriverTest {
     }
 
     @Test
+    fun `state envoie la version de l'application`() = runBlocking {
+        server.enqueue(json("""{"ok": true}"""))
+        driver().state(TvState(visible = true, screenOn = true, page = "p1", appVersion = "0.4.0"))
+        assertEquals(
+            """{"visible":true,"screenOn":true,"page":"p1","appVersion":"0.4.0"}""",
+            server.takeRequest().body.readUtf8(),
+        )
+    }
+
+    @Test
     fun `state en erreur leve JeedomException`() {
         server.enqueue(json("""{"error": "JSON invalide"}""", code = 400))
         val e = assertThrowsSuspend<JeedomException> { driver().state(TvState(true, true, null)) }

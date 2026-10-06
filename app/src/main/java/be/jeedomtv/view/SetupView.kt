@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -117,11 +118,17 @@ fun SetupView(state: AppState, controller: AppController) {
                 Text(error, color = JeedomTvColors.Error, fontSize = 20.sp)
             }
 
-            Button(
-                onClick = ::submit,
-                modifier = Modifier.align(Alignment.End),
-            ) {
-                Text("Connexion", fontSize = 22.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Version discrète : utile pour savoir quel APK tourne sur la TV.
+                Text(
+                    appVersionLabel,
+                    color = JeedomTvColors.TextMuted.copy(alpha = 0.6f),
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(onClick = ::submit) {
+                    Text("Connexion", fontSize = 22.sp)
+                }
             }
         }
     }

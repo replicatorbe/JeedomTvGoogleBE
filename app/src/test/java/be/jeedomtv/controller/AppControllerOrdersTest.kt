@@ -386,6 +386,21 @@ class AppControllerOrdersTest {
     }
 
     @Test
+    fun `chaque etat envoye porte la version de l'application`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = AppController(
+            AppModel(AppState()), FakeSettings(stored = config), factory, backgroundScope, appVersion = "0.4.0",
+        )
+        c.start()
+        runCurrent()
+        advanceTimeBy(400)
+        c.onUiVisibilityChanged(true)
+        advanceTimeBy(400)
+        assertEquals(2, factory.states.size)
+        assertTrue(factory.states.all { it.appVersion == "0.4.0" })
+    }
+
+    @Test
     fun `erreur d'envoi de l'etat ignoree`() = runTest {
         val factory = FakeDriverFactory().apply { onState = { throw JeedomException("Jeedom injoignable") } }
         val c = started(factory, visible = true)

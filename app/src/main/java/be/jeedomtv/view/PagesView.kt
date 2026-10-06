@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import be.jeedomtv.BuildConfig
 import be.jeedomtv.controller.formatValue
 import be.jeedomtv.model.Adjust
 import be.jeedomtv.model.AppState
@@ -68,7 +69,7 @@ fun PagesView(state: AppState) {
                 }
             }
             Spacer(Modifier.height(12.dp))
-            HelpBanner(helpText(state))
+            HelpBanner(helpText(state), trailing = appVersionLabel)
         }
 
         // Voile sur la grille : le panneau de réglage ou la confirmation ressort nettement.
@@ -250,21 +251,40 @@ private fun Notice(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+/** Rappel des touches ; [trailing] : mention discrète à droite (version de l'application). */
 @Composable
-internal fun HelpBanner(text: String) {
-    Text(
-        text,
-        color = JeedomTvColors.TextMuted,
-        fontSize = 16.sp,
-        textAlign = TextAlign.Center,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+internal fun HelpBanner(text: String, trailing: String? = null) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(JeedomTvColors.Surface, RoundedCornerShape(8.dp))
             .padding(horizontal = 20.dp, vertical = 8.dp),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            color = JeedomTvColors.TextMuted,
+            fontSize = 16.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (trailing != null) {
+            Text(
+                trailing,
+                color = JeedomTvColors.TextMuted.copy(alpha = 0.6f),
+                fontSize = 13.sp,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 16.dp),
+            )
+        }
+    }
 }
+
+/** « Jeedom TV 0.4.0 ». */
+internal val appVersionLabel: String
+    get() = "Jeedom TV ${BuildConfig.VERSION_NAME}"
 
 /** Rappel des touches du contexte courant. */
 fun helpText(state: AppState): String {

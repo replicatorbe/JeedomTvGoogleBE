@@ -49,6 +49,8 @@ class AppController(
     private val scope: CoroutineScope,
     /** Sans la permission, un ordre reçu en arrière-plan ouvre l'activité (comportement d'avant). */
     private val overlayPermission: OverlayPermission = OverlayPermission { false },
+    /** Version de l'application, envoyée avec chaque état (`appVersion`). */
+    private val appVersion: String? = null,
 ) {
     val state: StateFlow<AppState> = model.state
 
@@ -711,7 +713,7 @@ class AppController(
             delay(STATE_DEBOUNCE_MS)
             val target = driver ?: return@launch
             try {
-                target.state(state.value.tvState)
+                target.state(state.value.tvState.copy(appVersion = appVersion))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
