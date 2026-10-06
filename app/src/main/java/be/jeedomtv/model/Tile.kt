@@ -1,0 +1,90 @@
+package be.jeedomtv.model
+
+/** Type de tuile du contrat ; un type inconnu est affiché comme [Info]. */
+enum class TileType(val apiName: String) {
+    Switch("switch"),
+    Shutter("shutter"),
+    Slider("slider"),
+    Info("info"),
+    Scene("scene");
+
+    companion object {
+        fun fromApi(name: String?): TileType = entries.firstOrNull { it.apiName == name } ?: Info
+    }
+}
+
+/** Icône de tuile du contrat ; une icône inconnue devient [Generic]. */
+enum class TileIcon(val apiName: String) {
+    Light("light"),
+    Plug("plug"),
+    Shutter("shutter"),
+    Thermostat("thermostat"),
+    Temperature("temperature"),
+    Scene("scene"),
+    Fan("fan"),
+    Lock("lock"),
+    Alarm("alarm"),
+    Generic("generic");
+
+    companion object {
+        fun fromApi(name: String?): TileIcon = entries.firstOrNull { it.apiName == name } ?: Generic
+    }
+}
+
+/** Ordre envoyé au plugin pour une tuile (`action` de `POST ?action=exec`). */
+enum class TileAction(val apiName: String) {
+    On("on"),
+    Off("off"),
+    Toggle("toggle"),
+    Up("up"),
+    Down("down"),
+    Stop("stop"),
+    Set("set"),
+    Run("run"),
+}
+
+/** Une tuile telle que la décrit le plugin. La TV ne connaît jamais les commandes Jeedom derrière. */
+data class Tile(
+    val id: String,
+    val type: TileType,
+    val name: String,
+    val icon: TileIcon = TileIcon.Generic,
+    val confirm: Boolean = false,
+    /** Valeur brute ; null si la tuile n'a pas de retour d'état. */
+    val value: String? = null,
+    val unit: String = "",
+    val min: Double? = null,
+    val max: Double? = null,
+    val step: Double? = null,
+) {
+    /** Bornes connues : réglage d'une position (volet) ou d'une consigne (curseur). */
+    val hasRange: Boolean
+        get() = min != null && max != null && max > min
+
+    /** Interrupteur : "1" ou tout nombre > 0 = allumé. */
+    val isOn: Boolean
+        get() = (value?.trim()?.replace(',', '.')?.toDoubleOrNull() ?: 0.0) > 0.0
+
+    /** Valeur numérique, si elle en est une. */
+    val numericValue: Double?
+        get() = value?.trim()?.replace(',', '.')?.toDoubleOrNull()
+}
+
+/** Nouvelle valeur d'une tuile, reçue par `changes`. */
+data class TileChange(val tile: String, val value: String?)
+
+/** Réponse de `changes` : curseur suivant, révision actuelle et valeurs modifiées. */
+data class Changes(
+    /** Curseur opaque à renvoyer tel quel au prochain appel. */
+    val since: String,
+    val revision: String?,
+    val changes: List<TileChange>,
+)
+
+/** Réponse de `ping`. */
+data class PingInfo(
+    val tvId: Long?,
+    val tvName: String?,
+    val jeedomVersion: String?,
+    val pluginVersion: String?,
+)
