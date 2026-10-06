@@ -31,6 +31,23 @@ data class Banner(
     val message: String,
 )
 
+/**
+ * Superposition par-dessus une autre application (vidéo), quand l'application est cachée :
+ * elle s'affiche sans faire passer la vidéo en arrière-plan.
+ */
+sealed interface Overlay {
+    data object None : Overlay
+
+    /** Bandeau d'un ordre `notify` : ni focusable ni tactile, la vidéo garde la main. */
+    data class Notice(val banner: Banner) : Overlay
+
+    /**
+     * Panneau d'un ordre `show` : la page [pageId] en grille compacte, pilotable à la télécommande.
+     * [durationSec] : fermeture automatique (0 = après une minute sans touche).
+     */
+    data class Panel(val pageId: String, val durationSec: Int) : Overlay
+}
+
 /** État complet de l'application : la seule chose que les vues observent. */
 data class AppState(
     val screen: Screen = Screen.Loading,
@@ -63,6 +80,8 @@ data class AppState(
     val exitRequested: Boolean = false,
     /** Un ordre `show` veut afficher l'application alors qu'elle est en arrière-plan. */
     val foregroundRequested: Boolean = false,
+    /** Superposition affichée par-dessus une autre application. */
+    val overlay: Overlay = Overlay.None,
 ) {
     val currentPage: Page?
         get() = pages.getOrNull(pageIndex)
@@ -76,11 +95,15 @@ data class AppState(
 
     /** État signalé à Jeedom (`POST ?action=state`). */
     val tvState: TvState
-        get() = TvState(
-            visible = uiVisible,
-            screenOn = screenOn,
-            page = if (screen == Screen.Pages) currentPage?.id else null,
-        )
+        get() {
+            // Le panneau en superposition compte comme un affichage : on y regarde une page.
+            val panel = overlay is Overlay.Panel
+            return TvState(
+                visible = uiVisible || panel,
+                screenOn = screenOn,
+                page = if (screen == Screen.Pages || panel) currentPage?.id else null,
+            )
+        }
 
     fun findTile(id: String): Tile? =
         pages.asSequence().flatMap { it.tiles }.firstOrNull { it.id == id }

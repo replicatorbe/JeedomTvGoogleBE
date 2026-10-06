@@ -44,6 +44,8 @@ class AppController(
     private val settings: SettingsRepository,
     private val driverFactory: JeedomDriverFactory,
     private val scope: CoroutineScope,
+    /** Sans la permission, un ordre reçu en arrière-plan ouvre l'activité (comportement d'avant). */
+    private val overlayPermission: OverlayPermission = OverlayPermission { false },
 ) {
     val state: StateFlow<AppState> = model.state
 
