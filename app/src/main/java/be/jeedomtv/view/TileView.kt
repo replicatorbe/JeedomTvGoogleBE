@@ -112,18 +112,30 @@ fun tileValueText(tile: Tile): String = when (tile.type) {
         else -> "Éteint"
     }
     TileType.Scene -> "▶ Lancer"
-    TileType.Shutter -> if (tile.value == null) "▲ ▼" else valueWithUnit(tile)
+    TileType.Shutter -> when {
+        tile.value == null -> "▲ ▼"
+        tile.numericValue != null && tile.numericValue == tile.min -> "Fermé"
+        tile.numericValue != null && tile.numericValue == tile.max -> "Ouvert"
+        else -> valueWithUnit(tile)
+    }
     TileType.Slider, TileType.Info -> if (tile.value == null) "—" else valueWithUnit(tile)
 }
 
 private fun valueWithUnit(tile: Tile): String {
     val number = tile.numericValue
     return if (number != null) {
-        formatValue(number, tile.unit)
+        formatValue(number, tile.displayUnit)
     } else {
-        listOf(tile.value.orEmpty(), tile.unit).filter { it.isNotBlank() }.joinToString(" ")
+        listOf(tile.value.orEmpty(), tile.displayUnit).filter { it.isNotBlank() }.joinToString(" ")
     }
 }
+
+/**
+ * Unité affichée : Jeedom n'en donne pas pour la position des groupes de volets,
+ * qui est pourtant un pourcentage dès que la tuile a des bornes.
+ */
+val Tile.displayUnit: String
+    get() = if (type == TileType.Shutter && unit.isBlank() && min != null && max != null) "%" else unit
 
 /** Icônes dessinées au Canvas : pas de police d'emoji ni de ressource à embarquer. */
 @Composable

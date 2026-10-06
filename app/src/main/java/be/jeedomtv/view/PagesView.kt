@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +68,10 @@ fun PagesView(state: AppState) {
             HelpBanner(helpText(state))
         }
 
+        // Voile sur la grille : le panneau de réglage ou la confirmation ressort nettement.
+        if ((state.adjustTile != null && state.adjust != null) || state.confirm != null) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
+        }
         state.adjustTile?.let { tile ->
             state.adjust?.let { adjust -> AdjustPanel(tile, adjust, Modifier.align(Alignment.Center)) }
         }
@@ -188,7 +193,7 @@ private fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifie
         val max = tile.max
         if (pending != null && min != null && max != null) {
             Text(
-                formatValue(pending, tile.unit),
+                formatValue(pending, tile.displayUnit),
                 color = JeedomTvColors.Accent,
                 fontSize = 56.sp,
                 fontWeight = FontWeight.Bold,
@@ -199,11 +204,11 @@ private fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifie
                 currentFraction = tile.numericValue?.let { ((it - min) / span).toFloat() },
             )
             Row(Modifier.fillMaxWidth()) {
-                Text(formatValue(min, tile.unit), color = JeedomTvColors.TextMuted, fontSize = 18.sp)
+                Text(formatValue(min, tile.displayUnit), color = JeedomTvColors.TextMuted, fontSize = 18.sp)
                 Spacer(Modifier.weight(1f))
                 Text("Actuel : ${tileValueText(tile)}", color = JeedomTvColors.TextMuted, fontSize = 18.sp)
                 Spacer(Modifier.weight(1f))
-                Text(formatValue(max, tile.unit), color = JeedomTvColors.TextMuted, fontSize = 18.sp)
+                Text(formatValue(max, tile.displayUnit), color = JeedomTvColors.TextMuted, fontSize = 18.sp)
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(48.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -18,7 +18,7 @@ object JeedomTvColors {
     /** Fond d'un interrupteur allumé : ambré, pour ne pas le confondre avec la sélection (cyan). */
     val SwitchOn = Color(0xFFFFC857)
     val OnSwitchOn = Color(0xFF2E2000)
-    val Overlay = Color(0xE6101116)
+    val Overlay = Color(0xFF16171C)
 }
 
 private val DarkColors = darkColorScheme(
