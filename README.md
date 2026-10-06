@@ -161,6 +161,8 @@ adb shell settings put global animator_duration_scale 0.5
 - **TCL a son propre gestionnaire de mémoire** (`com.tcl.guard`). Il ne peut pas être désactivé sans root, mais il épargne les applications qui ont un service au premier plan, comme celle-ci.
 - **Veille et réseau** : au rallumage de l'écran et au retour du réseau, l'application relance aussitôt l'attente des changements, avec des pages rechargées, et signale son état à Jeedom.
 - **Ordres périmés** : un ordre non livré au bout de 60 s est abandonné par le plugin. Une TV éteinte n'affiche donc pas une page périmée à son réveil.
+- **Une clé = un seul appareil.** Les ordres de Jeedom sont livrés une seule fois, au premier appareil qui les demande. Deux appareils configurés avec la même clé (une TV et un émulateur de test, par exemple) se volent les ordres et brouillent l'état « Visible ». Chaque appareil a donc son propre équipement dans Jeedom.
+- **Juste après la touche Accueil**, Android bloque environ 5 s l'ouverture d'une application depuis l'arrière-plan. Un ordre « Afficher » reçu à ce moment s'affiche avec quelques secondes de retard : l'application redemande le premier plan au bout de 6 s.
 
 ## Piloter la TV depuis Jeedom
 

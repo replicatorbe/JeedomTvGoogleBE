@@ -2,6 +2,7 @@ package be.jeedomtv
 
 import android.app.Application
 import android.content.Intent
+import android.util.Log
 import be.jeedomtv.controller.AppController
 import be.jeedomtv.model.AppModel
 import be.jeedomtv.model.DataStoreSettingsRepository
@@ -9,6 +10,8 @@ import be.jeedomtv.model.driver.JeedomDriverFactory
 import be.jeedomtv.model.driver.JeedomHttpDriver
 import be.jeedomtv.view.MainActivity
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -44,18 +47,36 @@ class JeedomTvApp : Application() {
      * Android 10+ ne l'autorise depuis l'arrière-plan qu'avec la permission
      * « afficher par-dessus les autres applications » (accordée par adb sur Google TV).
      */
+    private fun openScreen() {
+        Log.i(TAG, "ouverture de l'écran demandée")
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+
     private fun bringToFrontOnRequest() {
         scope.launch {
             model.state
                 .map { it.foregroundRequested }
                 .distinctUntilChanged()
                 .filter { it }
-                .collect {
-                    startActivity(
-                        Intent(this@JeedomTvApp, MainActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
+                .collectLatest {
+                    openScreen()
+                    // Android bloque ~5 s les ouvertures depuis l'arrière-plan après la touche
+                    // Accueil : la demande est alors perdue. Une seconde tentative, une fois ce
+                    // délai passé, si l'écran n'est toujours pas au premier plan.
+                    delay(FOREGROUND_RETRY_MS)
+                    if (model.state.value.foregroundRequested) openScreen()
                 }
         }
+    }
+
+    private companion object {
+        /** Au-delà du blocage d'Android (~5 s) qui suit la touche Accueil. */
+        const val FOREGROUND_RETRY_MS = 6_000L
+
+        const val TAG = "JeedomTv"
+
     }
 }

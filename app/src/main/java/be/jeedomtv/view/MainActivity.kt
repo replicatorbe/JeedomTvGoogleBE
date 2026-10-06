@@ -1,7 +1,9 @@
 package be.jeedomtv.view
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -53,14 +55,43 @@ class MainActivity : ComponentActivity() {
         debugConfigFromIntent(intent)?.let { controller.submitSetup(it) }
     }
 
-    override fun onStart() {
-        super.onStart()
-        controller.onUiVisibilityChanged(true)
+    /*
+     * Visible = activité au sommet de l'écran (onTopResumedActivityChanged), pas seulement
+     * démarrée : sur la TCL, une ouverture depuis l'arrière-plan juste après la touche Accueil
+     * démarre et reprend l'activité, puis l'accueil repasse devant sans qu'onStop n'arrive.
+     * L'application se croyait visible et ne redemandait plus le premier plan.
+     */
+    private var resumed = false
+    private var topResumed = false
+
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+        // Avant Android 10, pas de notion d'activité « au sommet » : reprise = visible.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) topResumed = true
+        reportVisibility()
+    }
+
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumedActivity)
+        topResumed = isTopResumedActivity
+        reportVisibility()
+    }
+
+    override fun onPause() {
+        resumed = false
+        topResumed = false
+        reportVisibility()
+        super.onPause()
+    }
+
+    private fun reportVisibility() {
+        Log.i(TAG, "visibilité : resumed=$resumed top=$topResumed")
+        controller.onUiVisibilityChanged(resumed && topResumed)
     }
 
     override fun onStop() {
         consumedKeyCodes.clear()
-        controller.onUiVisibilityChanged(false)
         super.onStop()
     }
 
@@ -95,6 +126,7 @@ class MainActivity : ComponentActivity() {
                 .distinctUntilChanged()
                 .collect { requested ->
                     if (requested) {
+                        Log.i(TAG, "passage en arrière-plan demandé")
                         moveTaskToBack(true)
                         controller.onExitHandled()
                     }
@@ -122,5 +154,6 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         val REPEATABLE = setOf(RemoteCommand.Up, RemoteCommand.Down, RemoteCommand.Left, RemoteCommand.Right)
+        const val TAG = "JeedomTv"
     }
 }
