@@ -53,12 +53,7 @@ class JeedomTvService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        } else {
-            0
-        }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), type)
+        promoteToForeground()
         app.controller.onScreenChanged(getSystemService(PowerManager::class.java).isInteractive)
         registerReceiver(
             screenReceiver,
@@ -70,7 +65,24 @@ class JeedomTvService : Service() {
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    /*
+     * Chaque démarrage redemande le premier plan, pas seulement la création : TCL (TclAppBoot)
+     * le refuse au service relancé après une mise à jour, et l'ouverture de l'application, qui
+     * redémarre le service, doit pouvoir le lui rendre.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        promoteToForeground()
+        return START_STICKY
+    }
+
+    private fun promoteToForeground() {
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        } else {
+            0
+        }
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), type)
+    }
 
     override fun onDestroy() {
         unregisterReceiver(screenReceiver)

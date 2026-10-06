@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import be.jeedomtv.BuildConfig
 import be.jeedomtv.JeedomTvApp
+import be.jeedomtv.JeedomTvService
 import be.jeedomtv.controller.AppController
 import be.jeedomtv.controller.RemoteCommand
 import be.jeedomtv.model.JeedomConfig
@@ -65,6 +66,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Application au premier plan : le moment où TCL autorise le service au premier plan.
+        JeedomTvService.start(this)
         resumed = true
         // Avant Android 10, pas de notion d'activité « au sommet » : reprise = visible.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) topResumed = true
