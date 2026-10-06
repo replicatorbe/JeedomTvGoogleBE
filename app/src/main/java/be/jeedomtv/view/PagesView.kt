@@ -3,8 +3,8 @@ package be.jeedomtv.view
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -38,7 +39,10 @@ import be.jeedomtv.model.Page
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileType
 
-private val TileHeight = 180.dp
+/** Rangées de tuiles visibles sans défilement ; au-delà, la grille suit la sélection. */
+private const val VISIBLE_ROWS = 3
+private val TileSpacing = 12.dp
+private val MinTileHeight = 104.dp
 
 /**
  * Écran principal : onglets des pages en haut, grille de tuiles en dessous, bandeau d'aide en bas.
@@ -48,9 +52,9 @@ private val TileHeight = 180.dp
 @Composable
 fun PagesView(state: AppState) {
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 24.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
             Header(state)
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(14.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val page = state.currentPage
                 when {
@@ -59,7 +63,7 @@ fun PagesView(state: AppState) {
                     else -> TileGrid(page, state)
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
             HelpBanner(helpText(state))
         }
 
@@ -99,7 +103,7 @@ private fun Header(state: AppState) {
             }
             Spacer(Modifier.width(20.dp))
         }
-        state.tvName?.let { Text(it, color = JeedomTvColors.TextMuted, fontSize = 18.sp) }
+        state.tvName?.let { Text(it, color = JeedomTvColors.TextMuted, fontSize = 16.sp, maxLines = 1) }
     }
 }
 
@@ -108,15 +112,15 @@ private fun PageTab(page: Page, selected: Boolean) {
     Text(
         page.name,
         color = if (selected) JeedomTvColors.OnAccent else JeedomTvColors.TextMuted,
-        fontSize = 24.sp,
+        fontSize = 20.sp,
         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         maxLines = 1,
         modifier = Modifier
             .background(
                 if (selected) JeedomTvColors.Accent else JeedomTvColors.Surface,
-                RoundedCornerShape(24.dp),
+                RoundedCornerShape(20.dp),
             )
-            .padding(horizontal = 24.dp, vertical = 10.dp),
+            .padding(horizontal = 18.dp, vertical = 6.dp),
     )
 }
 
@@ -132,23 +136,27 @@ private fun TileGrid(page: Page, state: AppState) {
             item.offset.y + item.size.height <= info.viewportEndOffset
         if (!fullyVisible) gridState.animateScrollToItem(state.focusedIndex)
     }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(AppState.GRID_COLUMNS),
-        state = gridState,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(bottom = 8.dp),
-        userScrollEnabled = false,
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        itemsIndexed(page.tiles, key = { _, tile -> tile.id }) { index, tile ->
-            TileView(
-                tile = tile,
-                number = index + 1,
-                focused = index == state.focusedIndex,
-                flashing = tile.id == state.flashTileId,
-                modifier = Modifier.height(TileHeight),
-            )
+    // Hauteur calculée pour que trois rangées tiennent à l'écran, quelle que soit la densité de la TV.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val tileHeight = ((maxHeight - TileSpacing * (VISIBLE_ROWS - 1)) / VISIBLE_ROWS)
+            .coerceAtLeast(MinTileHeight)
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(AppState.GRID_COLUMNS),
+            state = gridState,
+            horizontalArrangement = Arrangement.spacedBy(TileSpacing),
+            verticalArrangement = Arrangement.spacedBy(TileSpacing),
+            userScrollEnabled = false,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            itemsIndexed(page.tiles, key = { _, tile -> tile.id }) { index, tile ->
+                TileView(
+                    tile = tile,
+                    number = index + 1,
+                    focused = index == state.focusedIndex,
+                    flashing = tile.id == state.flashTileId,
+                    modifier = Modifier.height(tileHeight),
+                )
+            }
         }
     }
 }
@@ -234,12 +242,14 @@ private fun HelpBanner(text: String) {
     Text(
         text,
         color = JeedomTvColors.TextMuted,
-        fontSize = 18.sp,
+        fontSize = 16.sp,
         textAlign = TextAlign.Center,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
         modifier = Modifier
             .fillMaxWidth()
             .background(JeedomTvColors.Surface, RoundedCornerShape(8.dp))
-            .padding(horizontal = 24.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp),
     )
 }
 
@@ -265,9 +275,9 @@ fun helpText(state: AppState): String {
     return listOfNotNull(
         "Flèches : choisir",
         action,
-        "1-9 : tuile N",
-        "CH+ / CH- : page",
-        "Menu : configuration",
+        "1-9 : tuile",
+        "CH+/CH- : page",
+        "Menu : réglages",
         "Retour : quitter",
     ).joinToString(" · ")
 }

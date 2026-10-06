@@ -73,30 +73,30 @@ fun TileView(
             )
             .padding(4.dp)
             .background(background, TileShape)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(verticalAlignment = Alignment.Top) {
-            TileIconView(tile.icon, color = if (on || flashing) content else JeedomTvColors.Accent, modifier = Modifier.size(40.dp))
-            Spacer(Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TileIconView(tile.icon, color = if (on || flashing) content else JeedomTvColors.Accent, modifier = Modifier.size(28.dp))
+            Text(
+                tile.name,
+                color = content,
+                fontSize = 17.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 21.sp,
+                modifier = Modifier.weight(1f),
+            )
             // Touches 1 à 9 : action directe sur la tuile N.
             if (number in 1..9) {
-                Text(number.toString(), color = muted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(number.toString(), color = muted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
-        Text(
-            tile.name,
-            color = content,
-            fontSize = 20.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 24.sp,
-        )
         Spacer(Modifier.weight(1f))
         Text(
             tileValueText(tile),
             color = if (tile.type == TileType.Switch || tile.type == TileType.Scene) muted else content,
-            fontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 30.sp else 22.sp,
+            fontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 26.sp else 20.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
