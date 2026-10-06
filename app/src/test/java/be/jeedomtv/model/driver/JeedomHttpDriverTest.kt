@@ -301,6 +301,28 @@ class JeedomHttpDriverTest {
         assertEquals(422, refused.httpCode)
     }
 
+    @Test
+    fun `ids opaques - page dynamique et tuiles s34 repris tels quels`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"revision": "r", "pages": [{"id": "scenes", "name": "Scénarios", "tiles": [
+                  {"id": "s34", "type": "scene", "name": "Cinéma", "icon": "scene", "value": null},
+                  {"id": "eq-12/cmd 7", "type": "switch", "name": "Prise", "value": "0"}
+                ]}]}
+                """.trimIndent()
+            )
+        )
+        server.enqueue(json("""{"ok": true, "value": null}"""))
+        val d = driver()
+        val page = d.layout().pages.single()
+        assertEquals("scenes", page.id)
+        assertEquals(listOf("s34", "eq-12/cmd 7"), page.tiles.map { it.id })
+        d.exec("s34", TileAction.Run)
+        server.takeRequest()
+        assertEquals("""{"tile":"s34","action":"run"}""", server.takeRequest().body.readUtf8())
+    }
+
     // --- Erreurs -------------------------------------------------------------------------------
 
     @Test

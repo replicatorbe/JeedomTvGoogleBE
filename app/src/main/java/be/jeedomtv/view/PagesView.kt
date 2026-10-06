@@ -96,7 +96,7 @@ private fun Header(state: AppState) {
             modifier = Modifier.weight(1f),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            itemsIndexed(state.pages, key = { _, page -> page.id }) { index, page ->
+            itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
                 PageTab(page, selected = index == state.pageIndex)
             }
         }
@@ -157,7 +157,8 @@ internal fun TileGrid(page: Page, state: AppState, visibleRows: Int = VISIBLE_RO
             userScrollEnabled = false,
             modifier = Modifier.fillMaxSize(),
         ) {
-            itemsIndexed(page.tiles, key = { _, tile -> tile.id }) { index, tile ->
+            // Ids opaques et supposés uniques : la position dans la clé évite tout plantage sur un doublon.
+            itemsIndexed(page.tiles, key = { index, tile -> "$index:${tile.id}" }) { index, tile ->
                 TileView(
                     tile = tile,
                     number = index + 1,

@@ -62,7 +62,7 @@ fun OverlayPanelView(state: AppState) {
                 modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                itemsIndexed(state.pages, key = { _, page -> page.id }) { index, page ->
+                itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
                     PageTab(page, selected = index == state.pageIndex)
                 }
             }
