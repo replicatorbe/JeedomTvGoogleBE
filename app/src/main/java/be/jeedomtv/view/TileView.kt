@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -24,10 +26,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.LocalTextStyle
 import androidx.tv.material3.Text
 import be.jeedomtv.controller.formatValue
 import be.jeedomtv.model.Tile
@@ -91,6 +97,8 @@ fun TileView(
                 Text(number.toString(), color = muted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
+        // Le nom prend la place qui reste une fois la valeur placée : deux lignes, une seule, ou
+        // des points de suspension. La valeur, elle, n'est jamais rognée.
         Text(
             label,
             color = content,
@@ -98,19 +106,56 @@ fun TileView(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             lineHeight = 20.sp,
+            modifier = Modifier.weight(1f),
         )
-        Spacer(Modifier.weight(1f))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             TileIconView(tile.icon, color = if (on || flashing) content else JeedomTvColors.Accent, modifier = Modifier.size(26.dp))
-            Text(
+            FitText(
                 tileValueText(tile),
                 color = if (tile.type == TileType.Switch || tile.type == TileType.Scene) muted else content,
-                fontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 24.sp else 19.sp,
+                maxFontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 24.sp else 19.sp,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+/** Tailles essayées, de la plus grande à la plus petite, pour qu'une valeur tienne en largeur. */
+private val FitScales = listOf(1f, 0.88f, 0.76f, 0.66f, 0.56f)
+
+/**
+ * Texte d'une ligne qui réduit sa taille plutôt que d'être coupé (« 24,4 °C » dans une tuile
+ * étroite). La hauteur de ligne reste celle de [maxFontSize] : la tuile ne bouge pas.
+ */
+@Composable
+private fun FitText(
+    text: String,
+    color: Color,
+    maxFontSize: TextUnit,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier,
+) {
+    val measurer = rememberTextMeasurer()
+    val baseStyle = LocalTextStyle.current.merge(TextStyle(fontWeight = fontWeight))
+    BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
+        val maxWidth = constraints.maxWidth
+        val fontSize = remember(text, maxWidth, maxFontSize, baseStyle) {
+            FitScales.map { maxFontSize * it }.firstOrNull { size ->
+                measurer.measure(text, baseStyle.copy(fontSize = size), maxLines = 1, softWrap = false)
+                    .size.width <= maxWidth
+            } ?: (maxFontSize * FitScales.last())
+        }
+        Text(
+            text,
+            color = color,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            style = baseStyle.copy(lineHeight = maxFontSize * 1.2f),
+        )
     }
 }
 
