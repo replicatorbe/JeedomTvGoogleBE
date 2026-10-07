@@ -53,6 +53,8 @@ class AppController(
     private val overlayPermission: OverlayPermission = OverlayPermission { false },
     /** Version de l'application, envoyée avec chaque état (`appVersion`). */
     private val appVersion: String? = null,
+    /** Horloge en ms, veille comprise (`SystemClock.elapsedRealtime` sur la TV). */
+    private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     val state: StateFlow<AppState> = model.state
 
@@ -67,6 +69,9 @@ class AppController(
 
     /** Boucle des changements en direct ; une seule à la fois. */
     private var changesJob: Job? = null
+
+    /** Début de l'attente longue en cours ([elapsedMs]) : au-delà de [STALE_CALL_MS], elle est morte. */
+    private var changesCallStartedAt = 0L
 
     /** Efface le message temporaire. */
     private var noticeTimer: Job? = null
@@ -183,11 +188,18 @@ class AppController(
         }
     }
 
-    /** La TV allume ou éteint son écran (sortie ou entrée en veille). */
+    /**
+     * La TV allume ou éteint son écran (sortie ou entrée en veille). Au réveil, la boucle repart
+     * si la connexion d'avant la veille est probablement morte : attente en cours depuis plus
+     * longtemps que ne le permet le plugin, ou boucle en erreur. Une attente encore valable
+     * (écran éteint puis rallumé aussitôt) est gardée : abandonnée, elle resterait ouverte côté
+     * Jeedom et pourrait y emporter un ordre, livré une seule fois.
+     */
     fun onScreenChanged(on: Boolean) {
         update { it.copy(screenOn = on) }
-        // Au réveil, la connexion d'avant la veille est probablement morte.
-        if (on) onNetworkMaybeRestored()
+        if (!on) return
+        val stale = elapsedMs() - changesCallStartedAt > STALE_CALL_MS
+        if (changesJob?.isActive != true || state.value.offline || stale) onNetworkMaybeRestored()
     }
 
     /**
@@ -321,6 +333,7 @@ class AppController(
                     }
                 }
                 val restarted = since == null
+                changesCallStartedAt = elapsedMs()
                 val result = target.changes(since)
                 currentCoroutineContext().ensureActive()
                 since = result.since
@@ -1207,6 +1220,9 @@ class AppController(
         const val BANNER_DURATION_MS = 8_000L
         const val STATE_DEBOUNCE_MS = 300L
         const val MAX_HANDLED_IDS = 100
+
+        /** Une attente longue dure 25 s au plus côté plugin : au-delà de 35 s, la connexion est morte. */
+        const val STALE_CALL_MS = 35_000L
 
         /** Question sans délai fourni par le plugin. */
         const val DEFAULT_QUESTION_TIMEOUT_S = 60

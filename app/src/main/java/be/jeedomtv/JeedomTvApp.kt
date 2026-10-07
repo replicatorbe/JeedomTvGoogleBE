@@ -2,6 +2,7 @@ package be.jeedomtv
 
 import android.app.Application
 import android.content.Intent
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import be.jeedomtv.controller.AppController
@@ -40,7 +41,10 @@ class JeedomTvApp : Application() {
         val driverFactory = JeedomDriverFactory { config -> JeedomHttpDriver(config) }
         // Permission « afficher par-dessus » (appops SYSTEM_ALERT_WINDOW) : relue à chaque ordre.
         val overlayPermission = OverlayPermission { Settings.canDrawOverlays(this) }
-        controller = AppController(model, settings, driverFactory, scope, overlayPermission, BuildConfig.VERSION_NAME)
+        controller = AppController(
+            model, settings, driverFactory, scope, overlayPermission, BuildConfig.VERSION_NAME,
+            elapsedMs = { SystemClock.elapsedRealtime() },
+        )
 
         controller.start()
         bringToFrontOnRequest()

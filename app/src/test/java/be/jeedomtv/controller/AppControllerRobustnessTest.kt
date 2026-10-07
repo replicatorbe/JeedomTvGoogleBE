@@ -203,7 +203,7 @@ class AppControllerRobustnessTest {
         )
         c2.start()
         runCurrent()
-        c2.onScreenChanged(true) // Réveil : la boucle est relancée.
+        c2.onNetworkMaybeRestored() // Retour du réseau : la boucle est relancée.
         runCurrent()
         assertFalse(c2.state.value.offline)
     }

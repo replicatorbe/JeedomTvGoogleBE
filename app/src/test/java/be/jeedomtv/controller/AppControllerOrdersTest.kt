@@ -34,7 +34,10 @@ class AppControllerOrdersTest {
         factory: FakeDriverFactory = FakeDriverFactory(),
         visible: Boolean = false,
     ): AppController {
-        val c = AppController(AppModel(AppState(uiVisible = visible)), FakeSettings(stored = config), factory, backgroundScope)
+        val c = AppController(
+            AppModel(AppState(uiVisible = visible)), FakeSettings(stored = config), factory, backgroundScope,
+            elapsedMs = { testScheduler.currentTime },
+        )
         c.start()
         runCurrent()
         return c
@@ -121,11 +124,45 @@ class AppControllerOrdersTest {
         assertFalse(c.state.value.screenOn)
         assertEquals("la veille n'arrête pas la boucle", listOf(null, "100"), factory.changesCalls)
 
+        // Longue veille : l'attente d'avant est morte depuis longtemps.
+        advanceTimeBy(10 * 60_000L)
         c.onScreenChanged(true)
         runCurrent()
         assertTrue(c.state.value.screenOn)
         assertEquals(2, factory.layoutCount)
         assertEquals(listOf(null, "100", null), factory.changesCalls)
+    }
+
+    @Test
+    fun `ecran eteint puis rallume aussitot - l'attente en cours est gardee`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = started(factory)
+        factory.pushChanges(changes("100"))
+        runCurrent()
+        advanceTimeBy(5_000)
+        c.onScreenChanged(false)
+        advanceTimeBy(10_000)
+        c.onScreenChanged(true)
+        runCurrent()
+        assertEquals("pas d'attente abandonnée côté Jeedom", listOf(null, "100"), factory.changesCalls)
+        assertEquals(1, factory.layoutCount)
+
+        // La même attente reçoit l'ordre.
+        factory.pushChanges(commands("101", TvCommand.Exit(1)))
+        runCurrent()
+        assertEquals(listOf(null, "100", "101"), factory.changesCalls)
+    }
+
+    @Test
+    fun `rallumage avec la boucle en erreur - relancee aussitot`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = started(factory)
+        factory.failChanges(JeedomException("Jeedom injoignable"))
+        runCurrent()
+        assertTrue(c.state.value.offline)
+        c.onScreenChanged(true)
+        runCurrent()
+        assertEquals("sans attendre la pause de 3 s", listOf(null, null), factory.changesCalls)
     }
 
     @Test
