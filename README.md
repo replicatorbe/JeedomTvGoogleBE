@@ -8,11 +8,11 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
 
 Captures en 1920×1080, avec une maison de démonstration (noms et valeurs fictifs).
 
-**Les pages, à la télécommande** : onglets, bandeau d'infos de la maison, tuiles en direct.
+**Les pages, à la télécommande** : onglets avec l'icône de la page, infos de la maison, tuiles en cartes (allumées en ambre), barre d'état en haut à droite.
 
 ![Lumières](docs/captures/01-lumieres.png)
 
-| Volets | Chauffage et clim |
+| Volets (jauge de position) | Chauffage et clim |
 |---|---|
 | ![Volets](docs/captures/02-volets.png) | ![Chauffage et clim](docs/captures/03-chauffage-clim.png) |
 | **Liste de choix** (mode de la clim) | **Caméras** (ouvertes en direct avec CameraOnTv) |
@@ -20,17 +20,23 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 | **Scénarios** (Cinéma, Bonne nuit, Je pars) | **Écran de veille domotique** |
 | ![Scénarios](docs/captures/06-scenarios.png) | ![Écran de veille](docs/captures/11-ecran-de-veille.png) |
 
-**Par-dessus la télé, sans l'interrompre** : une touche de couleur ou un ordre de Jeedom ouvre le panneau ; Jeedom peut aussi poser une question (bloc « Demander » d'un scénario) ou afficher un message.
+**Par-dessus la télé, sans l'interrompre** : une touche de couleur ou un ordre de Jeedom ouvre le panneau ; la barre d'état reste dans son coin (ici en haut à gauche).
 
 ![Panneau par-dessus la télé](docs/captures/07-panneau-par-dessus-la-tele.jpg)
 
-| On sonne : photo du portier et question | « Voir » : la question passe sous la vidéo |
-|---|---|
-| ![Sonnette](docs/captures/08-sonnette-avec-photo.jpg) | ![Question sous la vidéo](docs/captures/09-question-sous-la-video.jpg) |
-| **Message avec photo** | |
-| ![Bandeau avec photo](docs/captures/10-bandeau-avec-photo.jpg) | |
+**Barre d'état** (remplace TvOverlay) : l'heure et les indicateurs de Jeedom, en permanence dans un coin de l'écran.
 
-<sub>Vidéo d'arrière-plan : *Sintel*, © Blender Foundation, [durian.blender.org](https://durian.blender.org), licence Creative Commons Attribution 3.0. Photo du portier : illustration dessinée pour la démonstration.</sub>
+![Barre d'état](docs/captures/14-barre-detat.png)
+
+| On sonne : la caméra en direct et la question | Question de 23 h, en bas de l'écran |
+|---|---|
+| ![Sonnette](docs/captures/08-sonnette-avec-photo.jpg) | ![Question sans image](docs/captures/09-question-sous-la-video.jpg) |
+| **Notification** : portail ouvert | **Vidéo en direct** de la caméra, badge EN DIRECT |
+| ![Notification](docs/captures/12-notification-portail-ouvert.jpg) | ![Carte vidéo en direct](docs/captures/13-carte-video-en-direct.jpg) |
+| **Notification avec photo** | |
+| ![Notification avec photo](docs/captures/10-bandeau-avec-photo.jpg) | |
+
+<sub>Vidéo d'arrière-plan : *Sintel*, © Blender Foundation, [durian.blender.org](https://durian.blender.org), licence Creative Commons Attribution 3.0. Vidéo « en direct » : flux public de test (*Big Buck Bunny*, © Blender Foundation, [peach.blender.org](https://peach.blender.org), licence Creative Commons Attribution 3.0). Photo du portier : illustration dessinée pour la démonstration. Icônes : Material Design Icons (voir [Licences](#licences-des-composants-tiers)).</sub>
 
 ## Fonctionnalités
 
@@ -57,7 +63,8 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Bandeau d'infos** : jusqu'à 6 infos de la maison (température extérieure, poubelles, production solaire…) choisies dans Jeedom, sous les onglets et dans le panneau en superposition. Voir [Bandeau d'infos](#bandeau-dinfos).
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
-- **Barre d'état** et **notifications riches** (icône, coin, vidéo en direct de la caméra) : elles remplacent l'application TvOverlay. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
+- **Remplace TvOverlay** : **barre d'état** (heure et indicateurs en permanence dans un coin), **notifications riches** (icône, coin, image) et **vidéo en direct** de la caméra dans une incrustation. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
+- Icônes **Material Design Icons** embarquées (licence Apache 2.0, voir [Licences](#licences-des-composants-tiers)).
 - La version (« Jeedom TV 0.9.1 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
