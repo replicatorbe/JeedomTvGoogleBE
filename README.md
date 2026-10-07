@@ -110,7 +110,7 @@ Au premier lancement, l'écran de configuration demande :
 
 La configuration n'est enregistrée qu'après une connexion réussie. Elle reste sur la TV : l'application est exclue de la sauvegarde du compte Google (la clé n'en sort pas).
 
-Une clé déjà enregistrée s'affiche masquée (`••••••••5381`, les 4 derniers caractères). Laissée telle quelle, elle est conservée à la validation ; dès qu'on tape ou efface un caractère, le champ repart vide et en clair pour saisir la nouvelle clé.
+Une clé déjà enregistrée s'affiche masquée (`••••••••3f2a`, les 4 derniers caractères). Laissée telle quelle, elle est conservée à la validation ; dès qu'on tape ou efface un caractère, le champ repart vide et en clair pour saisir la nouvelle clé.
 
 En build debug uniquement, la configuration peut aussi être passée par adb, ce qui évite la saisie au clavier de la TV :
 

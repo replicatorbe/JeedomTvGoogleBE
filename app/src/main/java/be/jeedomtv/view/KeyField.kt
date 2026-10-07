@@ -1,7 +1,7 @@
 package be.jeedomtv.view
 
 /**
- * Champ « Clé de la TV » : une clé déjà enregistrée s'affiche masquée (`••••••••5381`) tant
+ * Champ « Clé de la TV » : une clé déjà enregistrée s'affiche masquée (`••••••••3f2a`) tant
  * qu'on n'y touche pas, et elle est alors conservée telle quelle à la validation. Au premier
  * caractère tapé ou effacé, le champ repart vide et en clair (le caractère tapé est gardé).
  */

@@ -7,19 +7,19 @@ import org.junit.Test
 
 class KeyFieldTest {
 
-    private val saved = "0123456789abcdef0123456789ab5381"
+    private val saved = "0123456789abcdef0123456789abcdef"
 
     @Test
     fun `cle enregistree affichee masquee et conservee sans modification`() {
         val field = KeyField(saved)
         assertTrue(field.masked)
-        assertEquals("••••••••5381", field.shown)
+        assertEquals("••••••••cdef", field.shown)
         assertEquals(saved, field.value)
     }
 
     @Test
     fun `un caractere tape - champ vide et en clair, le caractere garde`() {
-        val field = KeyField(saved).edit("••••••••5381a")
+        val field = KeyField(saved).edit("••••••••cdefa")
         assertFalse(field.masked)
         assertEquals("a", field.shown)
         assertEquals("a", field.value)
@@ -28,7 +28,7 @@ class KeyFieldTest {
 
     @Test
     fun `caractere tape avec le curseur au debut du masque`() {
-        assertEquals("x", KeyField(saved).edit("x••••••••5381").value)
+        assertEquals("x", KeyField(saved).edit("x••••••••cdef").value)
     }
 
     @Test
