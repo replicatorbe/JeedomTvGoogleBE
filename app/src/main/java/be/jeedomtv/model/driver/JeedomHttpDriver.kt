@@ -2,6 +2,7 @@ package be.jeedomtv.model.driver
 
 import be.jeedomtv.model.Changes
 import be.jeedomtv.model.ColorKey
+import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Page
@@ -267,11 +268,13 @@ private data class LayoutDto(
     val revision: String? = null,
     val pages: List<PageDto>? = null,
     val keys: JsonElement? = null,
+    val header: List<HeaderItemDto>? = null,
 ) {
     fun toLayout() = Layout(
         revision = revision.orEmpty(),
         pages = pages.orEmpty().mapIndexedNotNull { index, page -> page.toPage(index) },
         keys = colorKeys(),
+        header = header.orEmpty().mapNotNull { it.toItem() }.take(MAX_HEADER_ITEMS),
     )
 
     /**
@@ -285,6 +288,30 @@ private data class LayoutDto(
             val id = page.asText()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             key to id
         }.toMap()
+    }
+}
+
+/** Le contrat limite le bandeau à 6 éléments. */
+private const val MAX_HEADER_ITEMS = 6
+
+@Serializable
+private data class HeaderItemDto(
+    val id: String? = null,
+    val label: String? = null,
+    val icon: String? = null,
+    val value: JsonElement? = null,
+    val unit: String? = null,
+) {
+    /** Un élément sans id ne pourrait pas suivre `changes` : il est ignoré. */
+    fun toItem(): HeaderItem? {
+        val itemId = id?.takeIf { it.isNotBlank() } ?: return null
+        return HeaderItem(
+            id = itemId,
+            label = label.orEmpty(),
+            icon = TileIcon.fromApi(icon),
+            value = value.asText(),
+            unit = unit.orEmpty(),
+        )
     }
 }
 

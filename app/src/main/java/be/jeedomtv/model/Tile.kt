@@ -28,6 +28,10 @@ enum class TileIcon(val apiName: String) {
     Lock("lock"),
     Alarm("alarm"),
     Camera("camera"),
+    Sun("sun"),
+    Rain("rain"),
+    Trash("trash"),
+    Power("power"),
     Generic("generic");
 
     companion object {

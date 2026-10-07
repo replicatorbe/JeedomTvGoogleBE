@@ -261,6 +261,10 @@ fun TileIconView(icon: TileIcon, color: Color, modifier: Modifier = Modifier) {
             }
             TileIcon.Alarm -> drawBell(color, stroke)
             TileIcon.Camera -> drawCamera(color, stroke)
+            TileIcon.Sun -> drawSun(color, stroke)
+            TileIcon.Rain -> drawRain(color, stroke)
+            TileIcon.Trash -> drawTrash(color, stroke)
+            TileIcon.Power -> drawPower(color, stroke)
             TileIcon.Generic -> {
                 drawRoundRect(color, Offset(w * 0.15f, h * 0.15f), Size(w * 0.7f, h * 0.7f), CornerRadius(w * 0.15f), style = stroke)
                 drawCircle(color, radius = w * 0.1f)
@@ -308,6 +312,68 @@ private fun DrawScope.drawCamera(color: Color, stroke: Stroke) {
     drawLine(color, Offset(w * 0.52f, h * 0.18f), Offset(w * 0.56f, h * 0.3f), stroke.width, StrokeCap.Round)
     drawCircle(color, radius = w * 0.16f, center = Offset(w * 0.5f, h * 0.575f), style = stroke)
     drawCircle(color, radius = w * 0.04f, center = Offset(w * 0.76f, h * 0.4f))
+}
+
+/** Soleil : disque et huit rayons. */
+private fun DrawScope.drawSun(color: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawCircle(color, radius = w * 0.2f, center = Offset(w * 0.5f, h * 0.5f), style = stroke)
+    for (i in 0 until 8) {
+        val a = Math.toRadians(i * 45.0)
+        val c = cos(a).toFloat()
+        val s = sin(a).toFloat()
+        drawLine(
+            color,
+            Offset(w * (0.5f + 0.32f * c), h * (0.5f + 0.32f * s)),
+            Offset(w * (0.5f + 0.44f * c), h * (0.5f + 0.44f * s)),
+            stroke.width,
+            StrokeCap.Round,
+        )
+    }
+}
+
+/** Pluie : nuage et trois gouttes obliques. */
+private fun DrawScope.drawRain(color: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    val cloud = Path().apply {
+        moveTo(w * 0.24f, h * 0.58f)
+        cubicTo(w * 0.06f, h * 0.58f, w * 0.08f, h * 0.34f, w * 0.26f, h * 0.36f)
+        cubicTo(w * 0.3f, h * 0.12f, w * 0.64f, h * 0.1f, w * 0.7f, h * 0.32f)
+        cubicTo(w * 0.92f, h * 0.3f, w * 0.96f, h * 0.58f, w * 0.76f, h * 0.58f)
+        close()
+    }
+    drawPath(cloud, color, style = stroke)
+    for (x in listOf(0.32f, 0.5f, 0.68f)) {
+        drawLine(color, Offset(w * x, h * 0.7f), Offset(w * (x - 0.06f), h * 0.88f), stroke.width, StrokeCap.Round)
+    }
+}
+
+/** Poubelle : couvercle, poignée et cuve à rainures. */
+private fun DrawScope.drawTrash(color: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawLine(color, Offset(w * 0.18f, h * 0.24f), Offset(w * 0.82f, h * 0.24f), stroke.width, StrokeCap.Round)
+    drawLine(color, Offset(w * 0.4f, h * 0.12f), Offset(w * 0.6f, h * 0.12f), stroke.width, StrokeCap.Round)
+    val bin = Path().apply {
+        moveTo(w * 0.26f, h * 0.32f)
+        lineTo(w * 0.32f, h * 0.9f)
+        lineTo(w * 0.68f, h * 0.9f)
+        lineTo(w * 0.74f, h * 0.32f)
+    }
+    drawPath(bin, color, style = stroke)
+    for (x in listOf(0.42f, 0.58f)) {
+        drawLine(color, Offset(w * x, h * 0.44f), Offset(w * x, h * 0.78f), stroke.width * 0.7f, StrokeCap.Round)
+    }
+}
+
+/** Marche / arrêt : cercle ouvert en haut et trait vertical. */
+private fun DrawScope.drawPower(color: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawArc(color, -60f, 300f, false, Offset(w * 0.16f, h * 0.18f), Size(w * 0.68f, h * 0.68f), style = stroke)
+    drawLine(color, Offset(w * 0.5f, h * 0.1f), Offset(w * 0.5f, h * 0.48f), stroke.width, StrokeCap.Round)
 }
 
 /** Jauge horizontale : piste, remplissage jusqu'à [fraction], repère de la valeur actuelle. */

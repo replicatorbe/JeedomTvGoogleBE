@@ -25,8 +25,9 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **Quitter** : la superposition se ferme, ou l'application passe en arrière-plan.
   - **Question** (bloc « Demander » d'un scénario) : on répond à la télécommande, le scénario continue selon la réponse. Voir [Questions de Jeedom](#questions-de-jeedom).
 - Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée, et version de l'application (info `Version app`).
+- **Bandeau d'infos** : jusqu'à 6 infos de la maison (température extérieure, poubelles, production solaire…) choisies dans Jeedom, sous les onglets et dans le panneau en superposition. Voir [Bandeau d'infos](#bandeau-dinfos).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
-- La version (« Jeedom TV 0.5.0 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.6.0 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|
@@ -226,6 +227,16 @@ Limites :
 - Le panneau prend le focus de la télécommande : tant qu'il est affiché, les touches ne vont plus à la vidéo. La plupart des lecteurs continuent leur lecture, mais une application qui se met en pause à la perte du focus le ferait.
 - L'écran d'accueil de Google TV compte aussi comme une « application cachée » : le panneau s'y affiche par-dessus.
 - Le panneau ne réagit qu'à la télécommande (pas au toucher ni à la souris).
+
+## Bandeau d'infos
+
+Dans le plugin, chaque TV peut afficher en permanence jusqu'à 6 infos de la maison (champ `header` de [docs/api.md](docs/api.md#bandeau-dinfos-header)), chacune issue d'une commande info Jeedom, avec un libellé court et une icône (dont `sun`, `rain`, `trash`, `power`).
+
+- **Écran des pages** : une ligne de « puces » sous les onglets : icône, libellé discret au-dessus, valeur avec unité. La grille garde ses trois rangées : les espacements se resserrent et le nom des tuiles peut passer sur une ligne.
+- **Panneau en superposition** : la même ligne, compacte (icône et valeur), sous les onglets ; le panneau est un peu plus haut (66 % de l'écran au lieu de 60 %) pour garder deux rangées de tuiles.
+- Chaque puce prend sa largeur naturelle. Si elles ne tiennent pas toutes, seules les plus larges sont réduites, et leur texte est coupé par des points de suspension (« demain : Déchets… »).
+- Les valeurs suivent Jeedom en direct, comme les tuiles. Aucune action sur le bandeau.
+- Sans bandeau configuré, l'affichage est exactement celui d'avant.
 
 ## Touches de couleur
 

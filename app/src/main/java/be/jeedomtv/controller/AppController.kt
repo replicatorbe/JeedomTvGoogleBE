@@ -1131,6 +1131,12 @@ internal fun AppState.withChanges(changes: List<TileChange>): AppState {
     if (changes.isEmpty()) return this
     val values = changes.associate { it.tile to it.value }
     return copy(
+        // Les éléments du bandeau arrivent dans la même liste que les tuiles, par leur id.
+        header = if (header.none { it.id in values }) {
+            header
+        } else {
+            header.map { item -> if (item.id in values) item.copy(value = values[item.id]) else item }
+        },
         pages = pages.map { page ->
             if (page.tiles.none { it.id in values }) {
                 page
@@ -1157,6 +1163,7 @@ internal fun AppState.withLayout(layout: Layout): AppState {
         revision = layout.revision,
         pages = layout.pages,
         colorKeys = layout.keys,
+        header = layout.header,
         pageIndex = newPageIndex,
         focusedIndex = focusedIndex.coerceIn(0, (tileCount - 1).coerceAtLeast(0)),
         adjust = adjust?.takeIf { it.tileId in ids },

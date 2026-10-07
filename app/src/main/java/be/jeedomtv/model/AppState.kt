@@ -94,6 +94,8 @@ data class AppState(
     val pages: List<Page> = emptyList(),
     /** Raccourcis des touches de couleur (`keys` du layout) ; null si le plugin n'en envoie pas. */
     val colorKeys: Map<ColorKey, String>? = null,
+    /** Bandeau d'infos (`header` du layout) ; vide : pas de bandeau. */
+    val header: List<HeaderItem> = emptyList(),
     /** Page affichée (onglet sélectionné). */
     val pageIndex: Int = 0,
     /** Index (dans la page) de la tuile sélectionnée : porté par l'état, pas par le focus Compose. */

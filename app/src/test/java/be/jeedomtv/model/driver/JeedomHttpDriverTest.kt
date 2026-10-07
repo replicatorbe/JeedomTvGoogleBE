@@ -1,6 +1,7 @@
 package be.jeedomtv.model.driver
 
 import be.jeedomtv.model.ColorKey
+import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileAction
@@ -512,6 +513,69 @@ class JeedomHttpDriverTest {
         val request = server.takeRequest()
         assertEquals("exec", request.requestUrl!!.queryParameter("action"))
         assertEquals("""{"tile":"b1","action":"press"}""", request.body.readUtf8())
+    }
+
+    @Test
+    fun `layout avec header de l'exemple du contrat`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"revision": "r", "pages": [], "header": [
+                  {"id": "h1", "label": "Extérieur", "icon": "temperature", "value": "17", "unit": "°C"},
+                  {"id": "h2", "label": "Poubelles", "icon": "trash", "value": "demain : Déchets organiques", "unit": ""},
+                  {"id": "h3", "label": "Solaire", "icon": "sun", "value": "2283", "unit": "W"}
+                ]}
+                """.trimIndent()
+            )
+        )
+        assertEquals(
+            listOf(
+                HeaderItem("h1", "Extérieur", TileIcon.Temperature, "17", "°C"),
+                HeaderItem("h2", "Poubelles", TileIcon.Trash, "demain : Déchets organiques", ""),
+                HeaderItem("h3", "Solaire", TileIcon.Sun, "2283", "W"),
+            ),
+            driver().layout().header,
+        )
+    }
+
+    @Test
+    fun `layout sans header, header nul ou vide - pas de bandeau`() = runBlocking {
+        server.enqueue(json(CONTRACT_LAYOUT))
+        assertTrue(driver().layout().header.isEmpty())
+        server.enqueue(json("""{"revision": "r", "pages": [], "header": null}"""))
+        assertTrue(driver().layout().header.isEmpty())
+        server.enqueue(json("""{"revision": "r", "pages": [], "header": []}"""))
+        assertTrue(driver().layout().header.isEmpty())
+    }
+
+    @Test
+    fun `layout header - champs absents tolérés, élément sans id ignoré, 6 au plus`() = runBlocking {
+        val items = (1..8).joinToString(",") { """{"id": "h$it", "value": $it}""" }
+        server.enqueue(
+            json(
+                """
+                {"revision": "r", "pages": [], "header": [
+                  {"label": "Sans id", "value": "1"},
+                  {"id": "x", "label": null, "icon": "robot", "value": null, "unit": null},
+                  {"id": "p", "label": "Pluie", "icon": "rain", "value": 0.4, "unit": "mm"},
+                  $items
+                ]}
+                """.trimIndent()
+            )
+        )
+        val header = driver().layout().header
+        assertEquals(6, header.size)
+        assertEquals(HeaderItem("x", "", TileIcon.Generic, null, ""), header[0])
+        assertEquals(HeaderItem("p", "Pluie", TileIcon.Rain, "0.4", "mm"), header[1])
+        assertEquals(listOf("x", "p", "h1", "h2", "h3", "h4"), header.map { it.id })
+    }
+
+    @Test
+    fun `icones sun, rain, trash et power`() {
+        assertEquals(TileIcon.Sun, TileIcon.fromApi("sun"))
+        assertEquals(TileIcon.Rain, TileIcon.fromApi("rain"))
+        assertEquals(TileIcon.Trash, TileIcon.fromApi("trash"))
+        assertEquals(TileIcon.Power, TileIcon.fromApi("power"))
     }
 
     @Test

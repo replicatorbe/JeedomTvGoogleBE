@@ -13,6 +13,21 @@ data class Layout(
     val pages: List<Page>,
     /** Page (id) de chaque touche de couleur ; null si le plugin n'envoie pas `keys`. */
     val keys: Map<ColorKey, String>? = null,
+    /** Bandeau d'infos (`header`) ; vide si le plugin n'en envoie pas. */
+    val header: List<HeaderItem> = emptyList(),
+)
+
+/**
+ * Info de la maison affichée en permanence en haut des pages et du panneau (`header` du contrat).
+ * Aucune action possible ; sa valeur suit `changes`, comme celle d'une tuile.
+ */
+data class HeaderItem(
+    val id: String,
+    val label: String,
+    val icon: TileIcon = TileIcon.Generic,
+    /** Valeur brute ; null si inconnue. */
+    val value: String? = null,
+    val unit: String = "",
 )
 
 /** Touche de couleur de la télécommande, raccourci vers une page (`keys` du contrat). */

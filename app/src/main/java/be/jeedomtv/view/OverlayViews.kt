@@ -71,6 +71,8 @@ fun OverlayPanelView(state: AppState) {
             Spacer(Modifier.width(16.dp))
             Text("Jeedom TV", color = JeedomTvColors.Accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         }
+        // Bandeau d'infos compact (icône et valeur) ; le panneau est un peu plus haut pour lui.
+        if (state.header.isNotEmpty()) InfoHeader(state.header, Modifier.fillMaxWidth(), compact = true)
         state.banner?.let { banner ->
             Text(
                 listOf(banner.title, banner.message).filter { it.isNotBlank() }.joinToString(" · "),
@@ -92,7 +94,13 @@ fun OverlayPanelView(state: AppState) {
                 adjust != null && adjustTile != null -> AdjustPanel(adjustTile, adjust, compact = true)
                 page == null || page.tiles.isEmpty() ->
                     Text("Aucune tuile sur cette page", color = JeedomTvColors.TextMuted, fontSize = 22.sp)
-                else -> TileGrid(page, state, visibleRows = 2)
+                else -> TileGrid(
+                    page,
+                    state,
+                    visibleRows = 2,
+                    // Avec le bandeau, deux rangées tiennent encore : le nom des tuiles passe sur une ligne.
+                    minTileHeight = if (state.header.isEmpty()) MinTileHeight else CompactMinTileHeight,
+                )
             }
         }
         HelpBanner(panelHelpText(state))

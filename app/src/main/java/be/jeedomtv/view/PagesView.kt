@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -44,7 +45,13 @@ import be.jeedomtv.model.TileType
 /** Rangées de tuiles visibles sans défilement ; au-delà, la grille suit la sélection. */
 private const val VISIBLE_ROWS = 3
 private val TileSpacing = 12.dp
-private val MinTileHeight = 104.dp
+internal val MinTileHeight = 104.dp
+
+/** Avec le bandeau d'infos : un peu plus bas, le nom de la tuile tient alors sur une ligne. */
+private val WithHeaderMinTileHeight = 96.dp
+
+/** Plancher du panneau avec bandeau d'infos : nom sur une ligne, valeur entière. */
+internal val CompactMinTileHeight = 80.dp
 
 /**
  * Écran principal : onglets des pages en haut, grille de tuiles en dessous, bandeau d'aide en bas.
@@ -56,7 +63,15 @@ fun PagesView(state: AppState) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
             Header(state)
-            Spacer(Modifier.height(14.dp))
+            if (state.header.isEmpty()) {
+                Spacer(Modifier.height(14.dp))
+            } else {
+                // Bandeau d'infos sous les onglets ; les espacements se resserrent pour que la
+                // grille garde ses trois rangées.
+                Spacer(Modifier.height(8.dp))
+                InfoHeader(state.header, Modifier.fillMaxWidth())
+                Spacer(Modifier.height(10.dp))
+            }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val page = state.currentPage
                 when {
@@ -65,7 +80,11 @@ fun PagesView(state: AppState) {
                         EmptyMessage("Jeedom injoignable, nouvel essai en cours…")
                     state.pages.isEmpty() -> EmptyMessage("Aucune page configurée pour cette TV dans Jeedom")
                     page == null || page.tiles.isEmpty() -> EmptyMessage("Aucune tuile sur cette page")
-                    else -> TileGrid(page, state)
+                    else -> TileGrid(
+                        page,
+                        state,
+                        minTileHeight = if (state.header.isEmpty()) MinTileHeight else WithHeaderMinTileHeight,
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -135,7 +154,12 @@ internal fun PageTab(page: Page, selected: Boolean) {
 
 /** Grille de la page ; [visibleRows] rangées tiennent dans la hauteur disponible (panneau : moins). */
 @Composable
-internal fun TileGrid(page: Page, state: AppState, visibleRows: Int = VISIBLE_ROWS) {
+internal fun TileGrid(
+    page: Page,
+    state: AppState,
+    visibleRows: Int = VISIBLE_ROWS,
+    minTileHeight: Dp = MinTileHeight,
+) {
     val gridState = rememberLazyGridState()
     // Fait défiler la grille pour garder la tuile sélectionnée visible.
     LaunchedEffect(page.id, state.focusedIndex) {
@@ -149,7 +173,7 @@ internal fun TileGrid(page: Page, state: AppState, visibleRows: Int = VISIBLE_RO
     // Hauteur calculée pour que trois rangées tiennent à l'écran, quelle que soit la densité de la TV.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tileHeight = ((maxHeight - TileSpacing * (visibleRows - 1)) / visibleRows)
-            .coerceAtLeast(MinTileHeight)
+            .coerceAtLeast(minTileHeight)
         LazyVerticalGrid(
             columns = GridCells.Fixed(AppState.GRID_COLUMNS),
             state = gridState,
@@ -268,7 +292,7 @@ internal fun HelpBanner(text: String) {
     )
 }
 
-/** « Jeedom TV 0.5.0 », affiché sur l'écran de configuration. */
+/** « Jeedom TV 0.6.0 », affiché sur l'écran de configuration. */
 internal val appVersionLabel: String
     get() = "Jeedom TV ${BuildConfig.VERSION_NAME}"
 
