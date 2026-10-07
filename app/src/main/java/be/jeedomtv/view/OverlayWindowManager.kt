@@ -9,12 +9,17 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -28,6 +33,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import be.jeedomtv.controller.AppController
+import be.jeedomtv.controller.RemoteCommand
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Overlay
 import kotlinx.coroutines.CoroutineScope
@@ -41,7 +47,8 @@ import kotlinx.coroutines.launch
  *
  * - Bandeau : fenêtre ni focusable ni tactile, les touches vont toujours à la vidéo.
  * - Panneau : fenêtre focusable en bas de l'écran ; ses touches passent par le contrôleur.
- * - Question : fenêtre focusable au centre, toujours au-dessus du bandeau et du panneau.
+ * - Question : fenêtre focusable, toujours au-dessus du bandeau et du panneau. Sans image, un
+ *   bandeau compact dans le tiers inférieur (la vidéo reste visible) ; avec image, au centre.
  *
  * Vit dans l'Application (comme le contrôleur), jamais dans l'activité.
  */
@@ -65,19 +72,28 @@ class OverlayWindowManager(
         }
         scope.launch {
             controller.state
-                .map { it.question?.inOverlay == true }
+                .map { questionWindowKind(it) }
                 .distinctUntilChanged()
                 .collect { showQuestion(it) }
         }
     }
 
-    private fun showQuestion(visible: Boolean) {
-        Log.i(TAG, "question en superposition : $visible")
-        if (!visible) {
-            question = question?.let { remove(it); null }
-        } else if (question == null) {
-            question = add(questionWindow())
-        }
+    /** Fenêtre de question (et sa mise en page) affichée. */
+    private var questionKind = QuestionWindowKind.None
+
+    private fun showQuestion(kind: QuestionWindowKind) {
+        Log.i(TAG, "question en superposition : $kind")
+        // Une nouvelle question peut changer de mise en page (avec ou sans image) : nouvelle fenêtre.
+        question = question?.let { remove(it); null }
+        questionKind = kind
+        if (kind != QuestionWindowKind.None) question = add(questionWindow(kind))
+    }
+
+    /** Une fenêtre ajoutée passe au-dessus : la question y est remise, avec le focus. */
+    private fun keepQuestionOnTop() {
+        val current = question ?: return
+        remove(current)
+        question = add(questionWindow(questionKind))
     }
 
     private enum class Kind { None, Notice, Panel }
@@ -94,36 +110,58 @@ class OverlayWindowManager(
         if (kind != Kind.Panel) panel = panel?.let { remove(it); null }
         when (kind) {
             Kind.None -> Unit
-            Kind.Notice -> if (notice == null) notice = add(noticeWindow())
+            // Une question déjà affichée doit rester au-dessus (et garder le focus).
+            Kind.Notice -> if (notice == null) {
+                notice = add(noticeWindow())
+                keepQuestionOnTop()
+            }
             Kind.Panel -> if (panel == null) {
                 panel = add(panelWindow())
-                // Une question déjà affichée doit rester au-dessus (et garder le focus).
-                if (question != null) {
-                    question = question?.let { remove(it); null }
-                    question = add(questionWindow())
-                }
+                keepQuestionOnTop()
             }
         }
     }
 
-    private fun questionWindow(): OverlayWindow {
-        val keys = RemoteKeyForwarder { controller.onCommand(it) }
+    /** Touches d'une fenêtre focusable : Retour et Menu agissent au relâchement (voir [RemoteKeyForwarder]). */
+    private fun overlayKeys() = RemoteKeyForwarder(actOnRelease = RELEASE_COMMANDS) { controller.onCommand(it) }
+
+    private fun questionWindow(kind: QuestionWindowKind): OverlayWindow {
+        val keys = overlayKeys()
         val params = baseParams().apply {
-            // Focusable ; la vidéo est légèrement assombrie pour que la question ressorte.
-            flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
-            dimAmount = QUESTION_DIM
-            // Plein écran (transparent autour de la boîte) : avec WRAP_CONTENT, Compose mesurait
-            // la boîte trop étroite et écrasait les réponses.
             width = WindowManager.LayoutParams.MATCH_PARENT
-            height = WindowManager.LayoutParams.MATCH_PARENT
+            if (kind == QuestionWindowKind.Dialog) {
+                // Avec image : au centre, la vidéo légèrement assombrie pour que la question ressorte.
+                // Plein écran (transparent autour de la boîte) : avec WRAP_CONTENT, Compose mesurait
+                // la boîte trop étroite et écrasait les réponses.
+                flags = flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+                dimAmount = QUESTION_DIM
+                height = WindowManager.LayoutParams.MATCH_PARENT
+            } else {
+                // Sans image : bandeau en bas, sans voile ; la vidéo reste entièrement visible au-dessus.
+                height = WindowManager.LayoutParams.WRAP_CONTENT
+                gravity = Gravity.BOTTOM
+            }
         }
         val root = OverlayRoot(context, onKey = keys::dispatch).apply {
             isFocusable = true
             isFocusableInTouchMode = true
         }
         return OverlayWindow(root, params, onRemoved = keys::clear) { state ->
-            state.question?.takeIf { it.inOverlay }?.let {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { QuestionDialog(it) }
+            state.question?.takeIf { it.inOverlay }?.let { current ->
+                if (kind == QuestionWindowKind.Dialog) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { QuestionDialog(current) }
+                } else {
+                    // Tiers inférieur de l'écran au plus, marges de sécurité des téléviseurs comprises.
+                    val maxHeight = LocalConfiguration.current.screenHeightDp.dp / 3
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = maxHeight)
+                            .padding(start = 48.dp, end = 48.dp, bottom = 16.dp),
+                    ) {
+                        QuestionBanner(current)
+                    }
+                }
             }
         }
     }
@@ -143,7 +181,7 @@ class OverlayWindowManager(
     }
 
     private fun panelWindow(): OverlayWindow {
-        val keys = RemoteKeyForwarder { controller.onCommand(it) }
+        val keys = overlayKeys()
         val params = baseParams().apply {
             // Focusable (pas de FLAG_NOT_FOCUSABLE) : la télécommande pilote le panneau.
             flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -226,12 +264,15 @@ class OverlayWindowManager(
         /** Avec le bandeau d'infos : la vidéo garde un bon tiers de l'écran au-dessus. */
         const val PANEL_WITH_HEADER_HEIGHT_RATIO = 0.66f
 
-        /** Assombrissement de la vidéo derrière une question. */
+        /** Assombrissement de la vidéo derrière une question avec image. */
         const val QUESTION_DIM = 0.4f
+
+        /** Commandes qui ferment ou quittent une superposition : exécutées au relâchement. */
+        val RELEASE_COMMANDS = setOf(RemoteCommand.Back, RemoteCommand.Menu)
     }
 }
 
-/** Vue racine d'une superposition : intercepte les touches avant Compose (panneau seulement). */
+/** Vue racine d'une superposition : intercepte les touches avant Compose (panneau, question). */
 internal class OverlayRoot(
     context: Context,
     private val onKey: ((KeyEvent) -> Boolean)?,
