@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Lecteur de LiveVideo (bandeau et question). TextureView et non SurfaceView : l'image est dessinée
+  dans la fenêtre elle-même, comme une vue ordinaire. Une SurfaceView passe par une couche à part,
+  composée sous la fenêtre ; dans la fenêtre non focusable du bandeau, sur la TCL (Android 11,
+  décodeur Realtek), cette couche restait invisible alors que le décodeur tournait.
+-->
+<androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:focusable="false"
+    android:focusableInTouchMode="false"
+    app:surface_type="texture_view"
+    app:use_controller="false"
+    app:resize_mode="fit"
+    app:shutter_background_color="#FF000000"
+    app:keep_content_on_player_reset="false" />

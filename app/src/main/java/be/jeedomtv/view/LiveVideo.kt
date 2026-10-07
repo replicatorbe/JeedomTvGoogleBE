@@ -1,8 +1,7 @@
 package be.jeedomtv.view
 
 import android.content.Context
-import android.graphics.Color as AndroidColor
-import android.view.ViewGroup
+import android.view.LayoutInflater
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,9 +37,9 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
+import be.jeedomtv.R
 import be.jeedomtv.model.VideoUrl
 import kotlinx.coroutines.delay
 
@@ -155,15 +154,10 @@ private fun createLivePlayer(context: Context, video: VideoUrl): ExoPlayer {
         }
 }
 
-@OptIn(UnstableApi::class)
+/**
+ * Vue du lecteur, en TextureView (voir res/layout/live_video_player.xml) : la vidéo est dessinée
+ * dans la fenêtre comme toute autre vue, quels que soient l'ordre des fenêtres de superposition et
+ * le moment où la surface est créée. Même vue pour le bandeau et pour la question.
+ */
 private fun createPlayerView(context: Context): PlayerView =
-    // SurfaceView (par défaut) : le chemin le plus économe pour le décodeur matériel.
-    PlayerView(context).apply {
-        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        useController = false
-        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-        setShutterBackgroundColor(AndroidColor.BLACK)
-        setKeepContentOnPlayerReset(false)
-        isFocusable = false
-        isFocusableInTouchMode = false
-    }
+    LayoutInflater.from(context).inflate(R.layout.live_video_player, null, false) as PlayerView
