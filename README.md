@@ -15,9 +15,9 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **scénario** : lancement, avec un bref retour visuel ;
   - **liste de choix** : mode d'une clim, source de chauffe… La tuile affiche le choix en cours ; OK ouvre la liste ;
   - **bouton** : exécute une commande action choisie dans le plugin (par exemple « Afficher caméra » de CameraOnTv), avec un bref retour visuel. Il affiche « ▶ », ou la valeur de son état s'il en a un. Icône caméra disponible.
-- Valeurs en direct : l'application attend les changements de Jeedom (attente longue) tant qu'elle est affichée.
-  - La grille se recharge seule quand les pages changent dans Jeedom.
-  - Un indicateur « hors ligne » discret s'affiche quand Jeedom ne répond plus. L'application réessaie toutes les 3 s.
+- Valeurs en direct : l'application attend les changements de Jeedom (attente longue), affichée ou non (service au premier plan).
+  - La grille se recharge seule quand les pages changent dans Jeedom ; la sélection suit sa tuile.
+  - Un indicateur « hors ligne » discret s'affiche quand Jeedom ne répond plus, sur l'écran des pages comme sur le panneau. L'application réessaie après 3 s, puis de plus en plus espacé (30 s au plus) tant que Jeedom reste injoignable ; au rallumage de l'écran ou au retour du réseau, aussitôt.
 - Confirmation avant tout ordre sur une tuile marquée « confirmer » dans Jeedom.
 - La TV ne connaît aucun id de commande Jeedom : une clé volée ne pilote que les tuiles de cette TV.
 - Pilotage par Jeedom, même pendant un film (service au premier plan, démarré avec la TV) :
@@ -29,7 +29,7 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
 - **Bandeau d'infos** : jusqu'à 6 infos de la maison (température extérieure, poubelles, production solaire…) choisies dans Jeedom, sous les onglets et dans le panneau en superposition. Voir [Bandeau d'infos](#bandeau-dinfos).
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
-- La version (« Jeedom TV 0.7.0 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.7.1 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|
@@ -45,7 +45,7 @@ OK selon la tuile :
 
 | Tuile | Effet |
 |---|---|
-| Interrupteur | Bascule. L'affichage change tout de suite, puis Jeedom le corrige si besoin. En cas d'erreur, l'ancienne valeur revient et un message s'affiche 4 s. |
+| Interrupteur | Bascule. L'affichage change tout de suite, puis Jeedom le corrige si besoin. En cas d'erreur, l'ancienne valeur revient et un message s'affiche 4 s. Une réponse de Jeedom arrivée en retard n'écrase jamais une valeur plus récente (second appui, changement reçu entre-temps). |
 | Scénario | Lance le scénario. |
 | Bouton | Exécute sa commande Jeedom. |
 | Liste de choix | Ouvre le mode de choix : les libellés, la valeur actuelle marquée d'un ✓. ◀ ▶ (ou ▲ ▼) parcourent, OK envoie le choix (affiché tout de suite, puis corrigé par Jeedom si besoin), Retour annule. Fonctionne aussi dans le panneau en superposition. |
@@ -61,7 +61,7 @@ Un bandeau en bas de l'écran rappelle les touches du contexte.
 ```
 app/src/main/java/be/jeedomtv/
 ├── JeedomTvApp   Racine de composition : Modèle et Contrôleur vivent aussi longtemps que le processus
-├── view/OverlayWindowManager   Fenêtres de superposition (bandeau, panneau) hors de toute activité
+├── view/OverlayWindowManager   Fenêtres de superposition (bandeau, panneau, question) hors de toute activité
 ├── JeedomTvService / BootReceiver   Service au premier plan (boucle des changements permanente), démarré avec la TV
 ├── ColorKeyService   Service d'accessibilité : touches de couleur captées par-dessus les autres applications
 ├── view/HomeDreamService   Écran de veille (DreamService) : horloge et infos du bandeau
@@ -108,7 +108,7 @@ Au premier lancement, l'écran de configuration demande :
 - l'adresse de Jeedom (par exemple `192.168.1.10` ; un port est accepté : `jeedom.local:8080`) ;
 - la clé de la TV, affichée sur la page de l'équipement Jeedom TV correspondant dans le plugin.
 
-La configuration n'est enregistrée qu'après une connexion réussie.
+La configuration n'est enregistrée qu'après une connexion réussie. Elle reste sur la TV : l'application est exclue de la sauvegarde du compte Google (la clé n'en sort pas).
 
 Une clé déjà enregistrée s'affiche masquée (`••••••••5381`, les 4 derniers caractères). Laissée telle quelle, elle est conservée à la validation ; dès qu'on tape ou efface un caractère, le champ repart vide et en clair pour saisir la nouvelle clé.
 
@@ -211,7 +211,8 @@ Sur Google TV, ouvrir une application par-dessus une autre fait passer la vidéo
 | Ordre | Application affichée | Application cachée (film, IPTV…) |
 |---|---|---|
 | Message | Bandeau dans l'application | Bandeau en haut de l'écran, ~8 s. Il ne prend pas le focus : la télécommande continue de piloter la vidéo. |
-| Afficher page | Page dans l'application | Panneau semi-transparent sur la moitié basse de l'écran : la page en grille compacte. |
+| Afficher page | Page dans l'application | Panneau presque opaque sur la moitié basse de l'écran : la page en grille compacte. |
+| Question | Boîte au centre de l'application | Sans image : bandeau compact dans le tiers inférieur de l'écran, la vidéo reste visible au-dessus. Avec image : boîte au centre, vidéo assombrie. Voir [Questions de Jeedom](#questions-de-jeedom). |
 | Quitter | Retour à l'application d'avant | Fermeture de la superposition |
 
 Touches du panneau : les mêmes que sur l'écran des pages (flèches, OK, 1 à 9, CH+ / CH-, mode réglage, confirmation), plus :
@@ -221,6 +222,8 @@ Touches du panneau : les mêmes que sur l'écran des pages (flèches, OK, 1 à 9
 | Retour | Fermer le panneau (ou annuler le réglage / la confirmation en cours) |
 | Menu | Ouvrir l'application complète sur la même page |
 | Touche de couleur | Page associée ; la touche de la page affichée ferme le panneau |
+
+Le panneau affiche aussi l'indicateur « hors ligne » et le message d'un ordre refusé. Retour et Menu agissent au relâchement de la touche : le relâchement n'arrive pas seul à l'application vidéo une fois le panneau fermé.
 
 Le panneau se ferme seul après la durée de l'ordre. Une touche de la télécommande annule cette fermeture ; il se ferme alors après une minute sans touche, comme un panneau sans durée. Pour Jeedom, le panneau compte comme un affichage : `Visible` vaut 1 et `Page affichée` donne sa page.
 
@@ -250,7 +253,7 @@ L'application fournit un écran de veille Android (« Jeedom TV : horloge et inf
 - en dessous, les infos du [bandeau](#bandeau-dinfos) en grand, par rangées de trois, à jour en direct (même boucle des changements que l'application, rien de plus ne tourne) ;
 - sans configuration : l'heure seule ; Jeedom injoignable : l'heure et un petit « Jeedom injoignable » ;
 - fond noir, texte adouci, contenu déplacé lentement de quelques points chaque minute pour ménager l'écran ;
-- toute touche de la télécommande le quitte ;
+- toute touche de la télécommande le quitte, comme une question, un panneau ou l'ouverture de l'application demandés par Jeedom (un simple message s'affiche par-dessus) ;
 - léger : ni image ni animation continue (l'horloge se redessine une fois par minute). Sur l'émulateur, le processus passe d'environ 65 à 77 Mo (PSS) pendant la veille.
 
 ### Activation (adb)
@@ -341,8 +344,8 @@ Bon à savoir (constaté sur l'émulateur Android 13 ; à confirmer sur la TCL) 
 
 Le bloc **Demander** d'un scénario Jeedom peut poser une question à la TV et attendre la réponse, donnée à la télécommande :
 
-- dans l'application si elle est affichée ;
-- par-dessus la vidéo sinon (même permission que la superposition) : la vidéo continue ;
+- dans l'application si elle est affichée (boîte au centre) ;
+- par-dessus la vidéo sinon (même permission que la superposition) : la vidéo continue. Une question **sans image** s'affiche en bandeau compact dans le tiers inférieur de l'écran (question, réponses, compte à rebours) : une caméra en direct affichée juste avant (CameraOnTv) reste visible au-dessus. Une question **avec image** s'affiche au centre, avec la photo ;
 - sans cette permission, l'application s'ouvre, puis se referme après la réponse.
 
 | Touche | Action |
