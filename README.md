@@ -27,6 +27,7 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **Question** (bloc « Demander » d'un scénario) : on répond à la télécommande, le scénario continue selon la réponse. Voir [Questions de Jeedom](#questions-de-jeedom).
 - Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée, et version de l'application (info `Version app`).
 - **Bandeau d'infos** : jusqu'à 6 infos de la maison (température extérieure, poubelles, production solaire…) choisies dans Jeedom, sous les onglets et dans le panneau en superposition. Voir [Bandeau d'infos](#bandeau-dinfos).
+- **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - La version (« Jeedom TV 0.7.0 ») s'affiche discrètement sur l'écran de configuration.
 
@@ -63,6 +64,7 @@ app/src/main/java/be/jeedomtv/
 ├── view/OverlayWindowManager   Fenêtres de superposition (bandeau, panneau) hors de toute activité
 ├── JeedomTvService / BootReceiver   Service au premier plan (boucle des changements permanente), démarré avec la TV
 ├── ColorKeyService   Service d'accessibilité : touches de couleur captées par-dessus les autres applications
+├── view/HomeDreamService   Écran de veille (DreamService) : horloge et infos du bandeau
 ├── model/        État de l'application (AppModel, AppState), configuration, pages et tuiles
 │   └── driver/   Interface JeedomDriver + implémentation HTTP (OkHttp, kotlinx.serialization)
 ├── controller/   AppController (écrans, sélection, réglage, confirmation, changements en direct)
@@ -239,6 +241,47 @@ Dans le plugin, chaque TV peut afficher en permanence jusqu'à 6 infos de la mai
 - Chaque puce prend sa largeur naturelle. Si elles ne tiennent pas toutes, seules les plus larges sont réduites, et leur texte est coupé par des points de suspension (« demain : Déchets… »).
 - Les valeurs suivent Jeedom en direct, comme les tuiles. Aucune action sur le bandeau.
 - Sans bandeau configuré, l'affichage est exactement celui d'avant.
+
+## Écran de veille domotique
+
+L'application fournit un écran de veille Android (« Jeedom TV : horloge et infos de la maison »), classe `be.jeedomtv.view.HomeDreamService` :
+
+- grande horloge et date en français (« Mercredi 7 octobre ») ;
+- en dessous, les infos du [bandeau](#bandeau-dinfos) en grand, par rangées de trois, à jour en direct (même boucle des changements que l'application, rien de plus ne tourne) ;
+- sans configuration : l'heure seule ; Jeedom injoignable : l'heure et un petit « Jeedom injoignable » ;
+- fond noir, texte adouci, contenu déplacé lentement de quelques points chaque minute pour ménager l'écran ;
+- toute touche de la télécommande le quitte ;
+- léger : ni image ni animation continue (l'horloge se redessine une fois par minute). Sur l'émulateur, le processus passe d'environ 65 à 77 Mo (PSS) pendant la veille.
+
+### Activation (adb)
+
+```bash
+adb shell settings put secure screensaver_components be.jeedomtv/be.jeedomtv.view.HomeDreamService
+adb shell settings put secure screensaver_enabled 1
+```
+
+Délais (non vérifiés sur la TCL ; dans les réglages : Économiseur d'écran → « Démarrer après » et « Mettre l'appareil en veille ») :
+
+```bash
+adb shell settings put system screen_off_timeout 900000   # économiseur après 15 min sans touche (en ms)
+adb shell settings put secure sleep_timeout 3600000       # veille complète de la TV 1 h plus tard (-1 : jamais)
+```
+
+Vérification et essai immédiat :
+
+```bash
+adb shell settings get secure screensaver_components      # be.jeedomtv/be.jeedomtv.view.HomeDreamService
+adb shell dumpsys dreams | grep mCurrentDream               # pendant la veille : …HomeDreamService…
+adb shell am start -n com.android.systemui/.Somnambulator  # lance l'économiseur configuré (selon la TV)
+# ou, sur un appareil où adb peut passer root (émulateur userdebug) : adb shell cmd dreams start-dreaming
+```
+
+Revenir à l'écran ambiant Google TV : `adb shell settings delete secure screensaver_components` (ou choisir un autre économiseur dans les réglages).
+
+**Sur la TCL**, l'économiseur avait été coupé (`screensaver_enabled 0`) pour libérer environ 200 Mo : l'écran ambiant Google TV était gourmand. Deux options :
+
+1. **Écran de veille Jeedom TV** : `screensaver_enabled 1` avec le composant ci-dessus. Il ne charge pas l'écran ambiant de Google TV, seulement quelques Mo de plus dans le processus de Jeedom TV, déjà lancé.
+2. **Pas d'économiseur** : garder `screensaver_enabled 0`, comme aujourd'hui.
 
 ## Touches de couleur
 
