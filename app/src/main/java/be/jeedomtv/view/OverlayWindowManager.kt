@@ -2,6 +2,7 @@ package be.jeedomtv.view
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.os.Build
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -215,9 +216,10 @@ class OverlayWindowManager(
             gravity = (if (corner.isTop) Gravity.TOP else Gravity.BOTTOM) or (if (corner.isStart) Gravity.START else Gravity.END)
             x = (STATUS_MARGIN_X_DP * density).toInt()
             y = (STATUS_MARGIN_Y_DP * density).toInt()
+            ignoreSystemInsets()
         }
         return OverlayWindow(OverlayRoot(context, onKey = null), params) { state ->
-            state.status?.let { StatusBarView(it) }
+            state.status?.let { StatusBarView(it, style = StatusBarStyle.Overlay) }
         }
     }
 
@@ -231,7 +233,7 @@ class OverlayWindowManager(
             height = WindowManager.LayoutParams.WRAP_CONTENT
             gravity = if (top) Gravity.TOP else Gravity.BOTTOM
             // En bas : au-dessus de la barre d'état (coins du bas), pour ne pas la masquer.
-            y = ((if (top) 24 else 72) * context.resources.displayMetrics.density).toInt()
+            y = ((if (top) 24 else 40) * context.resources.displayMetrics.density).toInt()
         }
         return OverlayWindow(OverlayRoot(context, onKey = null), params) { state -> OverlayNoticeView(state) }
     }
@@ -252,6 +254,23 @@ class OverlayWindowManager(
             isFocusableInTouchMode = true
         }
         return OverlayWindow(root, params, onRemoved = keys::clear) { state -> OverlayPanelView(state) }
+    }
+
+    /**
+     * Position comptée depuis le bord physique de l'écran. Par défaut (Android 11+), une fenêtre de
+     * superposition est placée dans la zone laissée par les barres système : sa marge s'ajoutait à
+     * l'encart de la barre de navigation (masquée mais réservée sur Google TV), soit 5 à 8 cm de
+     * trop au-dessus du bord de la TV.
+     */
+    private fun WindowManager.LayoutParams.ignoreSystemInsets() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            setFitInsetsTypes(0)
+            setFitInsetsSides(0)
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else {
+            flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
     }
 
     private fun baseParams() = WindowManager.LayoutParams(
@@ -314,9 +333,12 @@ class OverlayWindowManager(
     private companion object {
         const val TAG = "JeedomTv"
 
-        /** Marges de la barre d'état : dans la zone sûre d'un téléviseur. */
-        const val STATUS_MARGIN_X_DP = 40
-        const val STATUS_MARGIN_Y_DP = 24
+        /**
+         * Marges de la barre d'état (avec le 1 dp de marge intérieure de [StatusBarStyle.Overlay]) :
+         * 6 dp du bord, comme TvOverlay (12 px en 1920 × 1080, densité 2).
+         */
+        const val STATUS_MARGIN_X_DP = 5
+        const val STATUS_MARGIN_Y_DP = 5
 
         /** Panneau sur un peu plus de la moitié basse de l'écran : la vidéo reste visible au-dessus. */
         const val PANEL_HEIGHT_RATIO = 0.6f

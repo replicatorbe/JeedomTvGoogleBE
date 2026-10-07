@@ -58,7 +58,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Barre d'état** et **notifications riches** (icône, coin, vidéo en direct de la caméra) : elles remplacent l'application TvOverlay. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
-- La version (« Jeedom TV 0.8.0 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.8.1 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -434,6 +434,7 @@ Jeedom TV reprend ce que faisait l'application **TvOverlay** (`com.tabdeveloper.
 
 - Dans un coin (`corner`, en bas à gauche par défaut), **par-dessus toutes les applications** : l'heure (24 h), puis les indicateurs calculés par le plugin, chacun avec une icône Material Design (`mdi:weather-rainy`…), un texte facultatif (« 18° »), une couleur d'icône, une bordure, un fond et une forme (rond, arrondi, rectangle). Exemple : « 19:20 · [pluie] 18° · [poubelle orange] · [cadenas ouvert orange] ».
 - Fond transparent et texte ombré : lisible sur n'importe quelle image. Opacité réglable (`opacity`, 0 = masquée).
+- Collée au coin, à 6 dp du bord physique de l'écran (12 px en 1920 × 1080), avec des pastilles de 18 dp (36 px) espacées de 5 dp : la taille et la place des indicateurs de TvOverlay. Les encarts système (barre de navigation réservée de Google TV) ne s'y ajoutent pas.
 - Fenêtre ni focusable ni tactile : la télécommande et la vidéo l'ignorent. Le bandeau d'un message, le panneau et une question passent au-dessus.
 - Dans l'application, sur l'écran des pages, elle prend la place du nom de la TV, en haut à droite : dans un coin du bas, elle masquerait l'aide.
 - Mise à jour en direct par la boucle des changements (état complet de la barre) ; l'heure se redessine une fois par minute, sans autre animation.
@@ -456,6 +457,7 @@ Une **question** (bloc « Demander ») peut aussi porter une vidéo : elle rempl
 Lecture vidéo (Media3 ExoPlayer, comme CameraOnTv) :
 
 - RTSP en TCP (plus fiable en Wi-Fi), petits tampons pour la latence, piste audio non décodée.
+- Image dessinée dans une `TextureView`, dans la fenêtre elle-même : avec une `SurfaceView` (couche à part, sous la fenêtre), la vidéo du bandeau restait invisible sur la TCL alors que le décodeur tournait.
 - **Un seul flux à la fois** : la TCL n'a que deux décodeurs matériels, dont un pour la télé. Une question avec vidéo garde le décodeur ; un bandeau affiché en même temps montre alors son image.
 - Le lecteur est libéré à la fermeture du bandeau, à la réponse à la question, ou quand l'application passe en arrière-plan. Trois tentatives au plus si le flux échoue, puis l'image reste.
 - **Les URL des caméras ne sont jamais écrites dans les journaux** (elles contiennent les identifiants) : les journaux de Media3 sont coupés, et l'URL n'apparaît pas dans les objets de l'état.

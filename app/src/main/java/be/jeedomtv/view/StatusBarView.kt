@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -60,7 +62,31 @@ fun statusClockText(millis: Long): String = SimpleDateFormat("HH:mm", Locale.FRA
 /** Texte lisible sur n'importe quelle image : une ombre plutôt qu'un fond. */
 private val StatusShadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(0f, 1f), blurRadius = 6f)
 
-private val ItemHeight = 30.dp
+/**
+ * Dimensions de la barre. [Overlay] : par-dessus les autres applications, à la taille de
+ * TvOverlay (pastilles d'environ 36 px de haut en 1920 × 1080, densité 2). [InApp] : dans la
+ * rangée des onglets de l'application.
+ */
+class StatusBarStyle(
+    val itemHeight: Dp,
+    val iconSize: Dp,
+    val clockSize: TextUnit,
+    val textSize: TextUnit,
+    val spacing: Dp,
+    val border: Dp,
+    val padding: Dp,
+    val weight: FontWeight,
+) {
+    companion object {
+        /**
+         * Mesuré sur une capture de TvOverlay en 1920 × 1080 (densité 2) : pastilles de ~36 px,
+         * icônes de ~22 px, 10 à 12 px entre l'heure et les pastilles et entre deux pastilles,
+         * texte de ~13 sp en graisse normale.
+         */
+        val Overlay = StatusBarStyle(18.dp, 11.dp, 13.sp, 13.sp, 5.dp, 1.dp, 1.dp, FontWeight.Normal)
+        val InApp = StatusBarStyle(30.dp, 18.dp, 20.sp, 16.sp, 10.dp, 2.dp, 4.dp, FontWeight.SemiBold)
+    }
+}
 
 /**
  * Barre d'état (remplace l'horloge et les indicateurs de TvOverlay) : l'heure, puis les
@@ -68,19 +94,19 @@ private val ItemHeight = 30.dp
  * seulement quand Jeedom change la barre.
  */
 @Composable
-fun StatusBarView(status: StatusBar, modifier: Modifier = Modifier) {
+fun StatusBarView(status: StatusBar, modifier: Modifier = Modifier, style: StatusBarStyle = StatusBarStyle.InApp) {
     Row(
-        modifier.alpha(status.opacity.coerceIn(0, 100) / 100f).padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier.alpha(status.opacity.coerceIn(0, 100) / 100f).padding(style.padding),
+        horizontalArrangement = Arrangement.spacedBy(style.spacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (status.clock) StatusClock()
-        status.items.forEach { StatusChip(it) }
+        if (status.clock) StatusClock(style)
+        status.items.forEach { StatusChip(it, style) }
     }
 }
 
 @Composable
-private fun StatusClock() {
+private fun StatusClock(style: StatusBarStyle) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     // Réveil au changement de minute seulement : l'heure n'affiche pas les secondes.
     LaunchedEffect(Unit) {
@@ -91,42 +117,48 @@ private fun StatusClock() {
     }
     Text(
         statusClockText(now),
-        style = TextStyle(color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, shadow = StatusShadow),
+        style = TextStyle(color = Color.White, fontSize = style.clockSize, fontWeight = style.weight, shadow = StatusShadow),
     )
 }
 
 private fun StatusShape.toShape(): Shape = when (this) {
     StatusShape.Circle -> CircleShape
-    StatusShape.Rounded -> RoundedCornerShape(8.dp)
+    StatusShape.Rounded -> RoundedCornerShape(percent = 35)
     StatusShape.Rectangular -> RectangleShape
 }
 
 /** Indicateur : icône MDI, texte facultatif, bordure et fond de la couleur demandée. */
 @Composable
-private fun StatusChip(item: StatusItem) {
+private fun StatusChip(item: StatusItem, style: StatusBarStyle) {
     val shape = item.shape.toShape()
     val border = Color(item.borderColor)
     val chip = Modifier
-        .height(ItemHeight)
+        .height(style.itemHeight)
         .background(Color(item.backgroundColor), shape)
-        .then(if (border.alpha > 0f) Modifier.border(2.dp, border, shape) else Modifier)
+        .then(if (border.alpha > 0f) Modifier.border(style.border, border, shape) else Modifier)
     if (item.text.isEmpty()) {
         // Icône seule : un carré (un rond pour `circle`).
-        Box(chip.size(ItemHeight), contentAlignment = Alignment.Center) {
-            MdiIcon(item.icon, Color(item.iconColor), 18.dp)
+        Box(chip.size(style.itemHeight), contentAlignment = Alignment.Center) {
+            MdiIcon(item.icon, Color(item.iconColor), style.iconSize)
         }
     } else {
         Row(
-            chip.padding(start = 6.dp, end = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            chip.padding(start = style.itemHeight / 4, end = style.itemHeight / 3),
+            horizontalArrangement = Arrangement.spacedBy(style.itemHeight / 5),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MdiIcon(item.icon, Color(item.iconColor), 18.dp)
+            MdiIcon(item.icon, Color(item.iconColor), style.iconSize)
             Text(
                 item.text,
                 maxLines = 1,
-                modifier = Modifier.widthIn(max = 160.dp),
-                style = TextStyle(color = Color(item.textColor), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, shadow = StatusShadow),
+                modifier = Modifier.widthIn(max = style.itemHeight * 5),
+                style = TextStyle(
+                    color = Color(item.textColor),
+                    fontSize = style.textSize,
+                    lineHeight = style.textSize,
+                    fontWeight = style.weight,
+                    shadow = StatusShadow,
+                ),
             )
         }
     }
