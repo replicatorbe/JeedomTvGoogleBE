@@ -49,23 +49,86 @@ import androidx.tv.material3.Text
 import be.jeedomtv.model.Banner
 import be.jeedomtv.model.VideoUrl
 
-/** Largeur de la carte image ou vidéo (16:9) : environ 800 px sur la TV. */
+/** Largeur des cartes de notification (vidéo, image, texte) : environ 800 px sur la TV. */
 private val CardWidth = 400.dp
-private val CardShape = RoundedCornerShape(16.dp)
 
-/** Le bandeau a-t-il une image ou une vidéo à montrer ? Sinon, bandeau texte. */
+/** Icône d'une notification qui n'en donne pas : une cloche, plutôt que l'icône « inconnue ». */
+internal const val DEFAULT_NOTIFICATION_ICON = "mdi:bell-outline"
+
+/** La notification a-t-elle une image ou une vidéo à montrer ? Sinon, carte texte. */
 fun Banner.isMediaCard(videoAllowed: Boolean): Boolean = (video != null && videoAllowed) || image != null
 
 /**
  * Notification de Jeedom : carte « image dans l'image » si elle a une vidéo ou une image,
- * bandeau texte sinon. [videoAllowed] : faux quand une question avec vidéo garde le décodeur.
+ * carte texte compacte sinon. [videoAllowed] : faux quand une question avec vidéo garde le décodeur.
  */
 @Composable
 fun NotificationView(banner: Banner, videoAllowed: Boolean, modifier: Modifier = Modifier) {
     if (banner.isMediaCard(videoAllowed)) {
         NotificationCard(banner, banner.video?.takeIf { videoAllowed }, modifier)
     } else {
-        BannerView(banner, modifier)
+        TextNotificationCard(banner, modifier)
+    }
+}
+
+/** Couleur d'accent d'une notification : celle de son icône, sinon le bleu doux. */
+private val Banner.accent: Color
+    get() = iconColor?.let { Color(it) } ?: SoftBlue
+
+/**
+ * Notification texte (portail, alarme, colis, rappels…) : carte compacte façon toast, de la
+ * largeur de la carte vidéo et de la hauteur du texte. Grande pastille d'icône à gauche (cloche
+ * par défaut), titre en gras puis message sur trois lignes au plus, barre du temps restant.
+ * Sans titre, le message seul, centré verticalement contre la pastille.
+ */
+@Composable
+fun TextNotificationCard(banner: Banner, modifier: Modifier = Modifier) {
+    val accent = banner.accent
+    Box(
+        modifier
+            .cardEnter(banner, fromStart = banner.corner.isStart)
+            .width(CardWidth)
+            .jeedomCard(),
+    ) {
+        Row(
+            Modifier.padding(start = 14.dp, end = 18.dp, top = 14.dp, bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconPill(banner.icon ?: DEFAULT_NOTIFICATION_ICON, accent, 40.dp)
+            NotificationText(banner, messageLines = 3)
+        }
+        if (banner.durationMs > 0) RemainingBar(banner, accent, Modifier.align(Alignment.BottomStart))
+    }
+}
+
+/** Titre (gras, 16 sp, blanc) puis message (13 sp, blanc à 80 %), coupés proprement. */
+@Composable
+private fun NotificationText(banner: Banner, messageLines: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (banner.title.isNotBlank()) {
+            Text(
+                banner.title,
+                color = Color.White,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (banner.message.isNotBlank()) {
+            // Sans titre, le message est le seul texte : en blanc, un peu plus grand.
+            val alone = banner.title.isBlank()
+            Text(
+                banner.message,
+                color = if (alone) Color.White else CardTextSecondary,
+                fontSize = if (alone) 15.sp else 13.sp,
+                lineHeight = if (alone) 19.sp else 17.sp,
+                maxLines = messageLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -79,26 +142,15 @@ fun NotificationView(banner: Banner, videoAllowed: Boolean, modifier: Modifier =
 fun NotificationCard(banner: Banner, video: VideoUrl?, modifier: Modifier = Modifier) {
     val image by rememberDecodedImage(banner.imageBytes, maxWidth = CARD_IMAGE_MAX_PX, maxHeight = CARD_IMAGE_MAX_PX)
     var playing by remember(banner) { mutableStateOf(false) }
-    val accent = banner.iconColor?.let { Color(it) } ?: Color.White
-
-    // Entrée : glissement de quelques dizaines de dp depuis le bord du coin, et fondu (~250 ms).
-    val enter = remember(banner) { Animatable(0f) }
-    LaunchedEffect(banner) { enter.animateTo(1f, tween(ENTER_MS, easing = FastOutSlowInEasing)) }
-    val slidePx = with(LocalDensity.current) { 32.dp.toPx() }
-    val fromStart = banner.corner.isStart
+    val accent = banner.accent
 
     Box(
         modifier
-            .graphicsLayer {
-                alpha = enter.value
-                translationX = (1f - enter.value) * slidePx * (if (fromStart) -1f else 1f)
-            }
+            .cardEnter(banner, fromStart = banner.corner.isStart)
             .width(CardWidth)
             .aspectRatio(16f / 9f)
-            .shadow(14.dp, CardShape, ambientColor = Color.Black, spotColor = Color.Black)
-            .clip(CardShape)
-            .background(CardBackground)
-            .border(1.dp, Color.White.copy(alpha = 0.15f), CardShape),
+            .jeedomCard(surface = false)
+            .background(CardBackground),
     ) {
         // Média en plein cadre. TextureView : le clip arrondi s'y applique (pas avec une SurfaceView).
         when {
@@ -126,37 +178,8 @@ fun NotificationCard(banner: Banner, video: VideoUrl?, modifier: Modifier = Modi
                 .padding(start = 14.dp, end = 14.dp, top = 28.dp, bottom = 14.dp),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                banner.icon?.let { icon ->
-                    Box(
-                        Modifier.size(30.dp).background(accent.copy(alpha = 0.22f), CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        MdiIcon(icon, accent, 18.dp)
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    if (banner.title.isNotBlank()) {
-                        Text(
-                            banner.title,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            lineHeight = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    if (banner.message.isNotBlank()) {
-                        Text(
-                            banner.message,
-                            color = Color.White.copy(alpha = 0.8f),
-                            fontSize = 13.sp,
-                            lineHeight = 16.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+                banner.icon?.let { IconPill(it, accent, 30.dp) }
+                NotificationText(banner, messageLines = 2)
             }
         }
 
@@ -218,7 +241,6 @@ private fun RemainingBar(banner: Banner, color: Color, modifier: Modifier = Modi
     }
 }
 
-private const val ENTER_MS = 250
 
 /** Plus grand côté visé au décodage de l'image d'une carte (400 dp ≈ 800 px). */
 private const val CARD_IMAGE_MAX_PX = 960

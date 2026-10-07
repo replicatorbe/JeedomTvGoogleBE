@@ -58,7 +58,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Barre d'état** et **notifications riches** (icône, coin, vidéo en direct de la caméra) : elles remplacent l'application TvOverlay. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
-- La version (« Jeedom TV 0.8.2 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.8.3 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -242,9 +242,9 @@ Sur Google TV, ouvrir une application par-dessus une autre fait passer la vidéo
 
 | Ordre | Application affichée | Application cachée (film, IPTV…) |
 |---|---|---|
-| Message | Bandeau dans l'application | Bandeau en haut de l'écran, ~8 s. Il ne prend pas le focus : la télécommande continue de piloter la vidéo. |
+| Message | Carte dans un coin de l'application | Carte dans un coin de l'écran (en haut à droite par défaut), ~8 s. Elle ne prend pas le focus : la télécommande continue de piloter la vidéo. |
 | Afficher page | Page dans l'application | Panneau presque opaque sur la moitié basse de l'écran : la page en grille compacte. |
-| Question | Boîte au centre de l'application | Sans image : bandeau compact dans le tiers inférieur de l'écran, la vidéo reste visible au-dessus. Avec image : boîte au centre, vidéo assombrie. Voir [Questions de Jeedom](#questions-de-jeedom). |
+| Question | Boîte au centre de l'application | Sans image : carte compacte centrée en bas de l'écran (~640 dp), la vidéo reste visible au-dessus. Avec image ou vidéo : carte au centre, vidéo assombrie. Voir [Questions de Jeedom](#questions-de-jeedom). |
 | Quitter | Retour à l'application d'avant | Fermeture de la superposition |
 
 Touches du panneau : les mêmes que sur l'écran des pages (flèches et onglets, OK, 1 à 9, CH+ / CH-, mode réglage, confirmation), plus :
@@ -377,7 +377,7 @@ Bon à savoir (constaté sur l'émulateur Android 13 ; à confirmer sur la TCL) 
 Le bloc **Demander** d'un scénario Jeedom peut poser une question à la TV et attendre la réponse, donnée à la télécommande :
 
 - dans l'application si elle est affichée (boîte au centre) ;
-- par-dessus la vidéo sinon (même permission que la superposition) : la vidéo continue. Une question **sans image** s'affiche en bandeau compact dans le tiers inférieur de l'écran (question, réponses, compte à rebours) : une caméra en direct affichée juste avant (CameraOnTv) reste visible au-dessus. Une question **avec image** s'affiche au centre, avec la photo ;
+- par-dessus la vidéo sinon (même permission que la superposition) : la vidéo continue. Une question **sans image** s'affiche en carte compacte centrée en bas de l'écran (question, réponses, compte à rebours) : une caméra en direct affichée juste avant (CameraOnTv) reste visible au-dessus. Une question **avec image** s'affiche au centre, avec la photo ;
 - sans cette permission, l'application s'ouvre, puis se referme après la réponse.
 
 | Touche | Action |
@@ -452,7 +452,9 @@ L'ordre `notify` (commande `Message`, ou `Notifier (JSON)` au format TvOverlay) 
 | `corner` | Coin du bandeau par-dessus une autre application : en haut à droite par défaut. En bas, il se place au-dessus de la barre d'état. |
 | `video` | Flux en direct (`rtsp://` des caméras, ou HLS `…m3u8`), **sans le son**, en incrustation « image dans l'image » (voir ci-dessous). L'image jointe sert d'attente puis de repli si le flux ne vient pas. |
 
-Une notification avec vidéo ou image s'affiche en **incrustation « image dans l'image »** : la vidéo (ou l'image) est la carte, en 16:9, d'environ 400 dp de large (800 px sur la TV), dans le coin demandé à 24 dp des bords, coins arrondis, liseré blanc très fin et ombre douce. Le titre et le message s'incrustent en bas sur un dégradé, avec l'icône MDI dans une pastille ; un badge « ● EN DIRECT » (point rouge qui pulse) s'affiche pendant la lecture, et une fine barre montre le temps restant, dans la couleur de l'icône. Entrée en glissement et fondu depuis le bord du coin, sortie en fondu. Avant la première image : la photo jointe, sinon un fond sombre avec une icône de caméra. Une notification sans image ni vidéo reste un bandeau texte, avec le même rayon et le même liseré discret.
+Une notification avec vidéo ou image s'affiche en **incrustation « image dans l'image »** : la vidéo (ou l'image) est la carte, en 16:9, d'environ 400 dp de large (800 px sur la TV), dans le coin demandé à 24 dp des bords, coins arrondis, liseré blanc très fin et ombre douce. Le titre et le message s'incrustent en bas sur un dégradé, avec l'icône MDI dans une pastille ; un badge « ● EN DIRECT » (point rouge qui pulse) s'affiche pendant la lecture, et une fine barre montre le temps restant, dans la couleur de l'icône. Entrée en glissement et fondu depuis le bord du coin, sortie en fondu. Avant la première image : la photo jointe, sinon un fond sombre avec une icône de caméra. Une notification **texte** (portail, alarme, colis, rappels, accueil du soir…) est une carte compacte de la même famille : même largeur, hauteur du texte, grande pastille d'icône à gauche (une cloche si Jeedom n'en donne pas), titre en gras puis message sur trois lignes au plus, barre du temps restant. Une nouvelle notification remplace celle affichée, avec la même entrée.
+
+Les **questions** suivent la même famille : carte sombre au liseré fin, pastille d'icône, réponses en pilules (la sélection en blanc, texte sombre), fine barre du compte à rebours ; la sonnette garde sa grande photo ou vidéo à gauche, avec le badge « ● EN DIRECT ».
 
 Une **question** (bloc « Demander ») peut aussi porter une vidéo : elle remplace la photo, à la même place, l'image servant d'attente et de repli. Le lecteur est libéré dès la réponse envoyée.
 

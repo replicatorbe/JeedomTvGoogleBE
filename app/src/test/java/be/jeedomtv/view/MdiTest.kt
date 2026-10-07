@@ -18,7 +18,7 @@ class MdiTest {
         assertEquals(0xF0597, codes["weather-rainy"])
         assertEquals(0xF0FC6, codes["lock-open-variant"])
         assertEquals(0xF0625, codes[GENERIC_ICON])
-        listOf("lightbulb", "gate-open", "trash-can", "doorbell", "cctv", "weather-cloudy").forEach {
+        listOf("lightbulb", "gate-open", "trash-can", "doorbell", "cctv", "weather-cloudy", mdiName(DEFAULT_NOTIFICATION_ICON)!!, "check-circle-outline", "alert-circle-outline").forEach {
             assertTrue(it, codes.containsKey(it))
         }
     }

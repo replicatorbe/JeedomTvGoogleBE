@@ -27,6 +27,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -42,17 +45,24 @@ import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Question
 import be.jeedomtv.model.QuestionStatus
 
-private val DialogShape = RoundedCornerShape(20.dp)
-private val AnswerShape = RoundedCornerShape(14.dp)
-private val PhotoShape = RoundedCornerShape(14.dp)
+/** Coins de la photo ou de la vidéo dans la carte. */
+private val MediaShape = RoundedCornerShape(12.dp)
 
-/** Plus grand côté visé au décodage de la photo : assez pour la moitié d'un écran 1080p. */
+/** Plus grand côté visé au décodage de la photo jointe. */
 private const val PHOTO_MAX_PX = 1280
 
+/** Icône des questions (le contrat n'en transmet pas). */
+private const val QUESTION_ICON = "mdi:help-circle-outline"
+
+/** Réponse focalisée : fond blanc, texte sombre. */
+private val FocusedText = Color(0xFF10141B)
+private val SentGreen = Color(0xFF81C995)
+private val FailedRed = Color(0xFFF28B82)
+
 /**
- * Question de Jeedom, lisible à 3 m : titre, question en grand, réponses en boutons horizontaux
- * (la sélection, pleine et agrandie, saute aux yeux), compte à rebours. Utilisée dans
- * l'application et en superposition ; les touches passent par le contrôleur.
+ * Question de Jeedom, dans la famille des cartes (fond sombre, liseré fin, pastille d'icône,
+ * réponses en pilules) et lisible à 3 m. Sans photo : carte centrée. Avec photo ou vidéo (sonnette) :
+ * le média en grand à gauche, la question à droite. Les touches passent par le contrôleur.
  */
 @Composable
 fun QuestionDialog(question: Question, modifier: Modifier = Modifier) {
@@ -64,56 +74,51 @@ fun QuestionDialog(question: Question, modifier: Modifier = Modifier) {
     if (image == null && question.video == null) {
         Column(
             modifier
-                .widthIn(min = 560.dp, max = 900.dp)
-                .background(JeedomTvColors.Overlay, DialogShape)
-                .border(3.dp, JeedomTvColors.Accent, DialogShape)
-                .padding(horizontal = 48.dp, vertical = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .widthIn(min = 560.dp, max = 820.dp)
+                .jeedomCard()
+                .padding(horizontal = 32.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            QuestionContent(question)
+            QuestionContent(question, large = true)
         }
     } else {
-        // Avec photo : la photo en grand à gauche (~45 %), la question et les réponses à droite.
+        // Avec photo ou vidéo : le média en grand à gauche (la moitié), la question à droite.
         Row(
             modifier
                 .fillMaxWidth(0.94f)
                 .widthIn(max = 1400.dp)
-                .background(JeedomTvColors.Overlay, DialogShape)
-                .border(3.dp, JeedomTvColors.Accent, DialogShape)
-                .padding(24.dp),
-            horizontalArrangement = Arrangement.spacedBy(32.dp),
+                .jeedomCard()
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            when {
-                // La vidéo remplace la photo, à la même place ; la photo sert d'attente et de repli.
-                video != null -> LiveVideo(
-                    video,
-                    placeholder = image,
-                    modifier = Modifier.weight(0.45f).heightIn(max = 460.dp).aspectRatio(16f / 9f).clip(PhotoShape),
-                )
-                image != null -> Image(
-                    bitmap = image,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .weight(0.45f)
-                        .heightIn(max = 460.dp)
-                        .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
-                        .clip(PhotoShape),
-                )
-                // Réponse envoyée, sans photo : le cadre noir reste, la mise en page ne saute pas.
-                else -> Box(
-                    Modifier.weight(0.45f).heightIn(max = 460.dp).aspectRatio(16f / 9f).clip(PhotoShape)
-                        .background(Color.Black),
-                )
+            var playing by remember(question.ask) { mutableStateOf(false) }
+            val media = Modifier.weight(0.5f).heightIn(max = 480.dp).aspectRatio(16f / 9f).clip(MediaShape)
+            Box(media) {
+                when {
+                    // La vidéo remplace la photo, à la même place ; la photo sert d'attente et de repli.
+                    video != null -> LiveVideo(
+                        video,
+                        placeholder = image,
+                        modifier = Modifier.matchParentSize(),
+                        onPlayingChange = { playing = it },
+                    )
+                    image != null -> Image(
+                        bitmap = image,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    // Réponse envoyée, sans photo : le cadre sombre reste, la mise en page ne saute pas.
+                    else -> Box(Modifier.matchParentSize().background(Color.Black))
+                }
+                if (video != null && playing) LiveBadge(Modifier.align(Alignment.TopStart).padding(12.dp))
             }
             Column(
-                Modifier.weight(0.55f),
+                Modifier.weight(0.5f),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                QuestionContent(question)
+                QuestionContent(question, large = true)
             }
         }
     }
@@ -143,143 +148,127 @@ fun questionHelpText(question: Question): String {
 }
 
 /**
- * Question sans image par-dessus la vidéo : un bandeau bas et large, question à gauche,
- * réponses à droite, compte à rebours et rappel des touches dessous. Il tient dans le tiers
- * inférieur de l'écran ; le texte trop long est coupé (deux lignes au plus).
+ * Question sans image par-dessus la vidéo : carte compacte centrée en bas de l'écran (~640 dp),
+ * pour ne pas masquer la caméra affichée au-dessus. Question en haut, réponses, puis compte à
+ * rebours et rappel des touches ; le texte trop long est coupé (trois lignes au plus).
  */
 @Composable
 fun QuestionBanner(question: Question, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .fillMaxWidth()
-            .background(JeedomTvColors.Overlay, DialogShape)
-            .border(3.dp, JeedomTvColors.Accent, DialogShape)
-            .padding(horizontal = 32.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .widthIn(max = 640.dp)
+            .jeedomCard()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (question.title.isNotBlank()) {
-                    Text(
-                        question.title,
-                        color = JeedomTvColors.Accent,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+        QuestionHeader(question, large = false)
+        when (val status = question.status) {
+            // Réponses à gauche ; compte à rebours et rappel des touches à droite : peu de hauteur.
+            QuestionStatus.Choosing, QuestionStatus.Sending -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { Answers(question, large = false) }
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.width(190.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (status == QuestionStatus.Choosing) {
+                        Countdown(question)
+                        Text(questionHelpText(question), color = CardTextMuted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 2)
+                    } else {
+                        Text("Envoi de la réponse…", color = CardTextMuted, fontSize = 14.sp)
+                    }
                 }
+            }
+            is QuestionStatus.Sent -> Result("mdi:check-circle-outline", SentGreen, "Réponse envoyée : ${status.answer}", large = false)
+            is QuestionStatus.Failed -> Result("mdi:alert-circle-outline", FailedRed, status.message, large = false)
+        }
+    }
+}
+
+/** Pastille d'icône, titre et question. */
+@Composable
+private fun QuestionHeader(question: Question, large: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(if (large) 16.dp else 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconPill(QUESTION_ICON, SoftBlue, if (large) 48.dp else 40.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (question.title.isNotBlank()) {
                 Text(
-                    question.message,
-                    color = JeedomTvColors.Text,
-                    fontSize = 28.sp,
-                    lineHeight = 34.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
+                    question.title,
+                    color = Color.White,
+                    fontSize = if (large) 18.sp else 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.width(32.dp))
-            when (val status = question.status) {
-                QuestionStatus.Choosing, QuestionStatus.Sending ->
-                    Answers(question, compact = true, modifier = Modifier.widthIn(max = 600.dp))
-                is QuestionStatus.Sent ->
-                    Text(
-                        "Réponse envoyée : ${status.answer}",
-                        color = JeedomTvColors.Accent,
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                is QuestionStatus.Failed ->
-                    Text(status.message, color = JeedomTvColors.Error, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-        when (question.status) {
-            QuestionStatus.Choosing -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { Countdown(question) }
-                Spacer(Modifier.width(24.dp))
-                Text(questionHelpText(question), color = JeedomTvColors.TextMuted, fontSize = 16.sp, maxLines = 1)
-            }
-            QuestionStatus.Sending -> Text("Envoi de la réponse…", color = JeedomTvColors.TextMuted, fontSize = 18.sp)
-            else -> Unit
+            Text(
+                question.message,
+                color = Color.White,
+                fontSize = if (large) 30.sp else 21.sp,
+                lineHeight = if (large) 38.sp else 26.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = if (large) 4 else 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
-/** Titre, question, réponses, compte à rebours ou résultat. */
+/** En-tête (pastille, titre, question), puis réponses et compte à rebours, ou le résultat. */
 @Composable
-private fun QuestionContent(question: Question) {
-    if (question.title.isNotBlank()) {
-        Text(question.title, color = JeedomTvColors.Accent, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-    }
-    Text(
-        question.message,
-        color = JeedomTvColors.Text,
-        fontSize = 36.sp,
-        lineHeight = 44.sp,
-        fontWeight = FontWeight.SemiBold,
-        textAlign = TextAlign.Center,
-    )
+private fun QuestionContent(question: Question, large: Boolean) {
+    QuestionHeader(question, large)
     when (val status = question.status) {
         QuestionStatus.Choosing -> {
-            Answers(question)
+            Answers(question, large)
             Countdown(question)
-            Text(
-                questionHelpText(question),
-                color = JeedomTvColors.TextMuted,
-                fontSize = 16.sp,
-                textAlign = TextAlign.Center,
-            )
+            Text(questionHelpText(question), color = CardTextMuted, fontSize = 13.sp, maxLines = 1)
         }
         QuestionStatus.Sending -> {
-            Answers(question)
-            Text("Envoi de la réponse…", color = JeedomTvColors.TextMuted, fontSize = 24.sp)
+            Answers(question, large)
+            Text("Envoi de la réponse…", color = CardTextMuted, fontSize = 16.sp)
         }
-        is QuestionStatus.Sent ->
-            Text(
-                "Réponse envoyée : ${status.answer}",
-                color = JeedomTvColors.Accent,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-        is QuestionStatus.Failed ->
-            Text(status.message, color = JeedomTvColors.Error, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        is QuestionStatus.Sent -> Result("mdi:check-circle-outline", SentGreen, "Réponse envoyée : ${status.answer}", large)
+        is QuestionStatus.Failed -> Result("mdi:alert-circle-outline", FailedRed, status.message, large)
     }
 }
 
-/** Réponses côte à côte ; si elles ne tiennent pas sur une ligne, elles passent à la suivante. */
+/** Résultat de la réponse, affiché ~2 s avant la fermeture. */
+@Composable
+private fun Result(icon: String, color: Color, text: String, large: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconPill(icon, color, if (large) 40.dp else 34.dp)
+        Text(text, color = color, fontSize = if (large) 26.sp else 20.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
+ * Réponses en pilules ; la sélection est blanche à texte sombre (et légèrement agrandie), les
+ * autres ont un contour discret. Elles passent à la ligne si elles ne tiennent pas.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Answers(question: Question, compact: Boolean = false, modifier: Modifier = Modifier) {
+private fun Answers(question: Question, large: Boolean) {
     FlowRow(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(if (compact) 16.dp else 24.dp, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (large) 16.dp else 12.dp),
+        verticalArrangement = Arrangement.spacedBy(if (large) 14.dp else 10.dp),
     ) {
         question.answers.forEachIndexed { index, answer ->
             val selected = index == question.selected
+            val textColor = if (selected) FocusedText else Color.White
             Row(
                 modifier = Modifier
-                    .scale(if (selected) 1.08f else 1f)
-                    .background(if (selected) JeedomTvColors.Accent else JeedomTvColors.SurfaceVariant, AnswerShape)
-                    .border(
-                        width = if (selected) 4.dp else 2.dp,
-                        color = if (selected) JeedomTvColors.Text else JeedomTvColors.TextMuted.copy(alpha = 0.5f),
-                        shape = AnswerShape,
-                    )
-                    .padding(horizontal = if (compact) 22.dp else 28.dp, vertical = if (compact) 8.dp else 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    .scale(if (selected) 1.05f else 1f)
+                    .background(if (selected) Color.White else Color.White.copy(alpha = 0.08f), PillShape)
+                    .border(1.dp, if (selected) Color.White else Color.White.copy(alpha = 0.3f), PillShape)
+                    .padding(horizontal = if (large) 26.dp else 20.dp, vertical = if (large) 12.dp else 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val color = if (selected) JeedomTvColors.OnAccent else JeedomTvColors.Text
                 if (question.answers.size <= 9) {
-                    Text("${index + 1}", color = color.copy(alpha = 0.7f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("${index + 1}", color = textColor.copy(alpha = 0.55f), fontSize = if (large) 18.sp else 15.sp, fontWeight = FontWeight.Bold)
                 }
                 Text(
                     answer,
-                    color = color,
-                    fontSize = if (compact) 24.sp else 28.sp,
+                    color = textColor,
+                    fontSize = if (large) 24.sp else 19.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -289,7 +278,9 @@ private fun Answers(question: Question, compact: Boolean = false, modifier: Modi
     }
 }
 
-/** Barre qui se vide en continu jusqu'à la fermeture, avec les secondes restantes. */
+private val PillShape = RoundedCornerShape(50)
+
+/** Fine barre qui se vide en continu jusqu'à la fermeture, avec les secondes restantes. */
 @Composable
 private fun Countdown(question: Question) {
     // Vise la valeur de la seconde suivante : la barre descend sans à-coups entre deux ticks.
@@ -298,19 +289,19 @@ private fun Countdown(question: Question) {
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(Modifier.weight(1f)) {
-            Canvas(Modifier.fillMaxWidth().height(10.dp)) {
+            Canvas(Modifier.fillMaxWidth().height(4.dp)) {
                 val radius = CornerRadius(size.height / 2)
-                drawRoundRect(JeedomTvColors.SurfaceVariant, cornerRadius = radius)
+                drawRoundRect(Color.White.copy(alpha = 0.12f), cornerRadius = radius)
                 drawRoundRect(
-                    if (question.remainingSec <= 5) JeedomTvColors.Error else JeedomTvColors.Accent,
+                    if (question.remainingSec <= 5) FailedRed else SoftBlue,
                     size = Size(size.width * fraction, size.height),
                     cornerRadius = radius,
                 )
             }
         }
-        Text("${question.remainingSec} s", color = JeedomTvColors.TextMuted, fontSize = 20.sp)
+        Text("${question.remainingSec} s", color = CardTextMuted, fontSize = 14.sp)
     }
 }

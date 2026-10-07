@@ -190,13 +190,15 @@ class OverlayWindowManager(
                 if (kind == QuestionWindowKind.Dialog) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { QuestionDialog(current) }
                 } else {
-                    // Tiers inférieur de l'écran au plus, marges de sécurité des téléviseurs comprises.
-                    val maxHeight = LocalConfiguration.current.screenHeightDp.dp / 3
+                    // Bas de l'écran (40 % de la hauteur au plus), marges de sécurité des téléviseurs comprises.
+                    val maxHeight = LocalConfiguration.current.screenHeightDp.dp * 2 / 5
+                    // Carte centrée en bas, de largeur raisonnable ; de la place autour pour son ombre.
                     Box(
                         Modifier
                             .fillMaxWidth()
                             .heightIn(max = maxHeight)
-                            .padding(start = 48.dp, end = 48.dp, bottom = 16.dp),
+                            .padding(start = 48.dp, end = 48.dp, top = 12.dp, bottom = 24.dp),
+                        contentAlignment = Alignment.BottomCenter,
                     ) {
                         QuestionBanner(current)
                     }
