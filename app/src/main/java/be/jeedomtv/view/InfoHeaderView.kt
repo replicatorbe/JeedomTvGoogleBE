@@ -21,9 +21,8 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import be.jeedomtv.controller.formatValue
 import be.jeedomtv.model.HeaderItem
+import be.jeedomtv.model.MAX_HEADER_ITEMS
 
-/** Le contrat limite le bandeau à 6 infos. */
-private const val MAX_ITEMS = 6
 
 /**
  * Bandeau d'infos de la maison (`header`) : une ligne de « puces » icône, libellé discret au-dessus
@@ -36,7 +35,7 @@ fun InfoHeader(items: List<HeaderItem>, modifier: Modifier = Modifier, compact: 
     if (items.isEmpty()) return
     val gap = if (compact) 8.dp else 10.dp
     Layout(
-        content = { items.take(MAX_ITEMS).forEach { InfoChip(it, compact) } },
+        content = { items.take(MAX_HEADER_ITEMS).forEach { InfoChip(it, compact) } },
         modifier = modifier,
     ) { measurables, constraints ->
         val gapPx = gap.roundToPx()

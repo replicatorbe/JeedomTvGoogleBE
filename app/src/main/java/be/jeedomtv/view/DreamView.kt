@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.HeaderItem
+import be.jeedomtv.model.MAX_HEADER_ITEMS
 import be.jeedomtv.model.Overlay
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -53,7 +54,7 @@ data class DreamContent(
 fun dreamContent(state: AppState): DreamContent {
     if (state.config == null) return DreamContent(emptyList(), unreachable = false)
     val unreachable = state.offline || state.revision == null
-    return DreamContent(if (unreachable) emptyList() else state.header.take(6), unreachable)
+    return DreamContent(if (unreachable) emptyList() else state.header.take(MAX_HEADER_ITEMS), unreachable)
 }
 
 /**

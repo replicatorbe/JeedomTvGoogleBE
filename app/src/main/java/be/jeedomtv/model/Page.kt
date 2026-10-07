@@ -17,6 +17,9 @@ data class Layout(
     val header: List<HeaderItem> = emptyList(),
 )
 
+/** Le contrat limite le bandeau d'infos (`header`) à 6 éléments. */
+const val MAX_HEADER_ITEMS = 6
+
 /**
  * Info de la maison affichée en permanence en haut des pages et du panneau (`header` du contrat).
  * Aucune action possible ; sa valeur suit `changes`, comme celle d'une tuile.

@@ -311,6 +311,16 @@ internal fun HelpBanner(text: String) {
 internal val appVersionLabel: String
     get() = "Jeedom TV ${BuildConfig.VERSION_NAME}"
 
+/** Effet de OK sur la tuile sélectionnée, pour le rappel des touches ; null s'il n'y en a pas. */
+internal fun okHelp(type: TileType?): String? = when (type) {
+    TileType.Switch -> "OK : allumer / éteindre"
+    TileType.Scene -> "OK : lancer"
+    TileType.Button -> "OK : activer"
+    TileType.Select -> "OK : changer"
+    TileType.Shutter, TileType.Slider -> "OK : régler"
+    TileType.Info, null -> null
+}
+
 /** Rappel des touches du contexte courant. */
 fun helpText(state: AppState): String {
     if (state.confirm != null) return "OK : confirmer · Retour : annuler"
@@ -325,14 +335,7 @@ fun helpText(state: AppState): String {
             "▲ ▼ : régler · ◀ ▶ : min / max · OK : envoyer · Retour : annuler$shutter"
         }
     }
-    val action = when (state.focusedTile?.type) {
-        TileType.Switch -> "OK : allumer / éteindre"
-        TileType.Scene -> "OK : lancer"
-        TileType.Button -> "OK : activer"
-        TileType.Select -> "OK : changer"
-        TileType.Shutter, TileType.Slider -> "OK : régler"
-        TileType.Info, null -> null
-    }
+    val action = okHelp(state.focusedTile?.type)
     return listOfNotNull(
         "Flèches : choisir",
         action,

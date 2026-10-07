@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Overlay
-import be.jeedomtv.model.TileType
 
 /** Fond du panneau presque opaque : l'interface de l'application vidéo (guide, menus) ne doit pas se lire au travers. */
 private val PanelBackground = JeedomTvColors.Background.copy(alpha = 0.95f)
@@ -135,14 +134,7 @@ fun OverlayPanelView(state: AppState) {
 /** Rappel des touches du panneau : Retour ferme, Menu ouvre l'application complète. */
 fun panelHelpText(state: AppState): String {
     if (state.confirm != null || state.adjust != null || state.choice != null) return helpText(state)
-    val action = when (state.focusedTile?.type) {
-        TileType.Switch -> "OK : allumer / éteindre"
-        TileType.Scene -> "OK : lancer"
-        TileType.Button -> "OK : activer"
-        TileType.Select -> "OK : changer"
-        TileType.Shutter, TileType.Slider -> "OK : régler"
-        TileType.Info, null -> null
-    }
+    val action = okHelp(state.focusedTile?.type)
     return listOfNotNull(
         "Flèches : choisir",
         action,

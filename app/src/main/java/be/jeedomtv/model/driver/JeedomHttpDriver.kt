@@ -6,6 +6,7 @@ import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
+import be.jeedomtv.model.MAX_HEADER_ITEMS
 import be.jeedomtv.model.Page
 import be.jeedomtv.model.PingInfo
 import be.jeedomtv.model.Tile
@@ -348,8 +349,6 @@ private data class LayoutDto(
     }
 }
 
-/** Le contrat limite le bandeau à 6 éléments. */
-private const val MAX_HEADER_ITEMS = 6
 
 @Serializable
 private data class HeaderItemDto(
