@@ -75,7 +75,19 @@ class HomeDreamService : DreamService() {
         }
     }
 
+    // La barre d'état (superposition) passerait au-dessus de la veille : elle s'efface le temps de la veille.
+    override fun onDreamingStarted() {
+        super.onDreamingStarted()
+        (application as JeedomTvApp).controller.onDreamingChanged(true)
+    }
+
+    override fun onDreamingStopped() {
+        (application as JeedomTvApp).controller.onDreamingChanged(false)
+        super.onDreamingStopped()
+    }
+
     override fun onDetachedFromWindow() {
+        (application as JeedomTvApp).controller.onDreamingChanged(false)
         scope?.cancel()
         scope = null
         owner?.destroy()

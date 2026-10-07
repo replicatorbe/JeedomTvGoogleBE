@@ -44,6 +44,15 @@ data class Banner(
     val image: String? = null,
     /** Octets de l'image, une fois téléchargée (décodée par la vue) ; null tant qu'elle ne l'est pas. */
     val imageBytes: ByteArray? = null,
+    /** Identifiant de la notification (`tag`), pour `dismiss`. */
+    val tag: String? = null,
+    /** Icône `mdi:` et sa couleur (ARGB), à gauche du titre quand il n'y a ni image ni vidéo. */
+    val icon: String? = null,
+    val iconColor: Int? = null,
+    /** Coin du bandeau par-dessus une autre application. */
+    val corner: Corner = Corner.TopEnd,
+    /** Flux en direct dans le bandeau, sans le son. */
+    val video: VideoUrl? = null,
 )
 
 /**
@@ -93,6 +102,8 @@ data class Question(
     val image: String? = null,
     /** Octets de l'image, une fois téléchargée (décodée par la vue) ; null tant qu'elle ne l'est pas. */
     val imageBytes: ByteArray? = null,
+    /** Flux en direct à la place de la photo, joué tant qu'on n'a pas répondu. */
+    val video: VideoUrl? = null,
 )
 
 /**
@@ -113,6 +124,10 @@ data class AppState(
     val colorKeys: Map<ColorKey, String>? = null,
     /** Bandeau d'infos (`header` du layout) ; vide : pas de bandeau. */
     val header: List<HeaderItem> = emptyList(),
+    /** Barre d'état permanente (`status`) ; null : pas de barre. */
+    val status: StatusBar? = null,
+    /** Notre écran de veille est affiché : la barre d'état s'efface (il a sa propre horloge). */
+    val dreaming: Boolean = false,
     /** Page affichée (onglet sélectionné). */
     val pageIndex: Int = 0,
     /** Index (dans la page) de la tuile sélectionnée : porté par l'état, pas par le focus Compose. */

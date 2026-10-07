@@ -105,6 +105,9 @@ data class Changes(
     val revision: String?,
     val changes: List<TileChange>,
     val commands: List<TvCommand> = emptyList(),
+    /** `status` présent dans la réponse : la barre d'état est remplacée par [status] (null : retirée). */
+    val statusChanged: Boolean = false,
+    val status: StatusBar? = null,
 )
 
 /** Ordre de Jeedom pour la TV (« Commandes Jeedom → TV » du contrat). */
@@ -124,7 +127,19 @@ sealed interface TvCommand {
         val image: String? = null,
         /** Durée du bandeau en secondes (3 à 120) ; null : durée par défaut de la TV. */
         val durationSec: Int? = null,
+        /** Identifiant de la notification : même `tag` = remplace ; `dismiss` le retire. */
+        val tag: String? = null,
+        /** Icône `mdi:` et sa couleur (ARGB), à gauche du titre quand il n'y a ni image ni vidéo. */
+        val icon: String? = null,
+        val iconColor: Int? = null,
+        /** Coin du bandeau par-dessus une autre application. */
+        val corner: Corner = Corner.TopEnd,
+        /** Flux joué en direct, sans le son, dans le bandeau ; l'image sert d'attente et de repli. */
+        val video: VideoUrl? = null,
     ) : TvCommand
+
+    /** Retire tout de suite la notification de `tag` [target], si elle est encore affichée. */
+    data class Dismiss(override val id: Long?, val target: String) : TvCommand
 
     /** Passe l'application en arrière-plan. */
     data class Exit(override val id: Long?) : TvCommand
@@ -142,6 +157,8 @@ sealed interface TvCommand {
         val timeoutSec: Int,
         /** Identifiant d'une image jointe (photo du portier…) ; null sans image. */
         val image: String? = null,
+        /** Flux en direct à la place de la photo ; l'image sert d'attente et de repli. */
+        val video: VideoUrl? = null,
     ) : TvCommand
 }
 

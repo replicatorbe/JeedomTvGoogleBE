@@ -341,6 +341,8 @@ class AppController(
                 failures = 0
                 update { it.copy(offline = false) }
                 applyChanges(result.changes)
+                // Barre d'état : état complet, remplacé tel quel (hors révision : elle change souvent).
+                if (result.statusChanged) update { it.copy(status = result.status) }
                 val revision = result.revision
                 // Les ordres ne sont livrés qu'une fois : un layout impossible à recharger ne doit
                 // pas les perdre. Ils passent, puis l'erreur relance la boucle.
@@ -430,6 +432,7 @@ class AppController(
         when (command) {
             is TvCommand.Show -> show(command)
             is TvCommand.Notify -> notify(command)
+            is TvCommand.Dismiss -> dismissNotification(command.target)
             is TvCommand.Exit -> exit()
             is TvCommand.Ask -> ask(command)
         }
@@ -521,7 +524,17 @@ class AppController(
      */
     private fun notify(command: TvCommand.Notify) {
         val current = state.value
-        val banner = Banner(command.title, command.message, image = command.image)
+        // Un nouveau bandeau remplace toujours le précédent (même `tag` ou non) : un seul à la fois.
+        val banner = Banner(
+            command.title,
+            command.message,
+            image = command.image,
+            tag = command.tag,
+            icon = command.icon,
+            iconColor = command.iconColor,
+            corner = command.corner,
+            video = command.video,
+        )
         // Durée demandée par Jeedom (`duration`), sinon celle de la TV.
         val durationMs = command.durationSec?.let { it * 1000L } ?: BANNER_DURATION_MS
         if (!current.uiVisible && !current.foregroundRequested) {
@@ -545,6 +558,23 @@ class AppController(
             bannerImageJob?.cancel()
             update { it.copy(banner = null) }
         }
+    }
+
+    /** Ordre `dismiss` : retire le bandeau de `tag` [target], dans l'application ou par-dessus. */
+    private fun dismissNotification(target: String) {
+        val current = state.value
+        if (current.banner?.tag == target) {
+            bannerTimer?.cancel()
+            bannerTimer = null
+            bannerImageJob?.cancel()
+            update { it.copy(banner = null) }
+        }
+        if ((current.overlay as? Overlay.Notice)?.banner?.tag == target) dismissOverlay(restoreSelection = false)
+    }
+
+    /** Notre écran de veille s'affiche ou se ferme : la barre d'état s'efface pendant ce temps. */
+    fun onDreamingChanged(dreaming: Boolean) {
+        update { it.copy(dreaming = dreaming) }
     }
 
     // --- Images jointes -----------------------------------------------------------------------
@@ -766,6 +796,7 @@ class AppController(
                     remainingSec = timeout,
                     inOverlay = inOverlay,
                     image = command.image,
+                    video = command.video,
                 ),
                 foregroundRequested = it.foregroundRequested || opensActivity,
             )
@@ -1373,6 +1404,7 @@ internal fun AppState.withLayout(layout: Layout): AppState {
         pages = layout.pages,
         colorKeys = layout.keys,
         header = layout.header,
+        status = layout.status,
         pageIndex = newPageIndex,
         focusedIndex = newFocus,
         adjust = adjust?.takeIf { it.tileId in ids },

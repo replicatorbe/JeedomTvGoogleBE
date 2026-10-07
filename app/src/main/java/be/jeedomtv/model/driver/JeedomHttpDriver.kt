@@ -3,12 +3,18 @@ package be.jeedomtv.model.driver
 import be.jeedomtv.model.Changes
 import be.jeedomtv.model.Choice
 import be.jeedomtv.model.ColorKey
+import be.jeedomtv.model.Corner
 import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.MAX_HEADER_ITEMS
 import be.jeedomtv.model.Page
 import be.jeedomtv.model.PingInfo
+import be.jeedomtv.model.StatusBar
+import be.jeedomtv.model.StatusItem
+import be.jeedomtv.model.StatusShape
+import be.jeedomtv.model.TRANSPARENT
+import be.jeedomtv.model.WHITE
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
@@ -16,6 +22,8 @@ import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
 import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.TvState
+import be.jeedomtv.model.VideoUrl
+import be.jeedomtv.model.parseColor
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
@@ -99,6 +107,9 @@ class JeedomHttpDriver internal constructor(
                 change.tile?.let { TileChange(it, change.value.asText()) }
             },
             commands = dto.commands.decodeEach<CommandDto>().mapNotNull { it.toCommand() },
+            // `status` présent (même null) : état complet de la barre, à remplacer tel quel.
+            statusChanged = dto.status !== ABSENT,
+            status = if (dto.status === ABSENT) null else parseStatus(dto.status),
         )
     }
 
@@ -327,12 +338,14 @@ private data class LayoutDto(
     val pages: List<JsonElement>? = null,
     val keys: JsonElement? = null,
     val header: List<JsonElement>? = null,
+    val status: JsonElement? = null,
 ) {
     fun toLayout() = Layout(
         revision = revision.orEmpty(),
         pages = pages.decodeEach<PageDto>().mapIndexed { index, page -> page.toPage(index) },
         keys = colorKeys(),
         header = header.decodeEach<HeaderItemDto>().mapNotNull { it.toItem() }.take(MAX_HEADER_ITEMS),
+        status = parseStatus(status),
     )
 
     /**
@@ -435,11 +448,45 @@ private data class ChangesDto(
     val revision: String? = null,
     val changes: List<JsonElement>? = null,
     val commands: List<JsonElement>? = null,
+    /** Valeur par défaut [ABSENT] : distingue « pas de `status` » de `"status": null`. */
+    val status: JsonElement? = ABSENT,
 )
+
+/** Marqueur d'un champ absent de la réponse (jamais envoyé par le plugin). */
+private val ABSENT: JsonElement = JsonPrimitive("\u0000absent")
+
+/**
+ * Barre d'état (`status`) ; null si absente, nulle ou illisible. Lecture tolérante : un
+ * indicateur sans id est ignoré, une couleur illisible prend sa valeur par défaut.
+ */
+internal fun parseStatus(element: JsonElement?): StatusBar? {
+    val obj = element as? JsonObject ?: return null
+    val items = (obj["items"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { item ->
+        val fields = item as? JsonObject ?: return@mapNotNull null
+        val id = fields["id"].asText()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        StatusItem(
+            id = id,
+            icon = fields["icon"].asText()?.takeIf { it.isNotBlank() },
+            text = fields["text"].asText().orEmpty(),
+            iconColor = parseColor(fields["iconColor"].asText()) ?: WHITE,
+            textColor = parseColor(fields["textColor"].asText()) ?: WHITE,
+            borderColor = parseColor(fields["borderColor"].asText()) ?: TRANSPARENT,
+            backgroundColor = parseColor(fields["backgroundColor"].asText()) ?: TRANSPARENT,
+            shape = StatusShape.fromApi(fields["shape"].asText()),
+        )
+    }
+    return StatusBar(
+        corner = Corner.fromApi(obj["corner"].asText(), Corner.BottomStart),
+        clock = obj["clock"].asFlag() ?: true,
+        opacity = (obj["opacity"].asText()?.toDoubleOrNull()?.toInt() ?: 100).coerceIn(0, 100),
+        items = items,
+    )
+}
 
 @Serializable
 private data class CommandDto(
-    val id: Long? = null,
+    /** Entier croissant de l'ordre ; un texte non numérique est lu comme `tag` (tolérance). */
+    val id: JsonElement? = null,
     val type: String? = null,
     val page: String? = null,
     val duration: Double? = null,
@@ -449,33 +496,55 @@ private data class CommandDto(
     val answers: List<JsonElement>? = null,
     val timeout: Double? = null,
     val image: String? = null,
+    val tag: JsonElement? = null,
+    val target: JsonElement? = null,
+    val icon: String? = null,
+    val iconColor: String? = null,
+    val corner: String? = null,
+    val video: String? = null,
 ) {
     private val imageId: String?
         get() = image?.takeIf { it.isNotBlank() }
 
+    /** Id d'ordre : un entier (ou un texte numérique). */
+    private val orderId: Long?
+        get() = id.asText()?.trim()?.toLongOrNull()
+
+    /** Identifiant de notification : `tag`, sinon un `id` texte non numérique. */
+    private val notificationTag: String?
+        get() = tag.asText()?.takeIf { it.isNotBlank() }
+            ?: id.asText()?.takeIf { it.isNotBlank() && it.trim().toLongOrNull() == null }
+
     /** Type inconnu ou `show` sans page : ignoré, comme le demande le contrat. */
     fun toCommand(): TvCommand? = when (type) {
         "show" -> page?.takeIf { it.isNotBlank() }?.let {
-            TvCommand.Show(id, it, (duration ?: 0.0).toInt().coerceAtLeast(0))
+            TvCommand.Show(orderId, it, (duration ?: 0.0).toInt().coerceAtLeast(0))
         }
         "notify" -> TvCommand.Notify(
-            id, title.orEmpty(), message.orEmpty(), imageId,
+            orderId, title.orEmpty(), message.orEmpty(), imageId,
             // Contrat : 3 à 120 s ; une valeur hors bornes y est ramenée.
             durationSec = duration?.toInt()?.coerceIn(MIN_NOTIFY_S, MAX_NOTIFY_S),
+            tag = notificationTag,
+            icon = icon?.takeIf { it.isNotBlank() },
+            iconColor = parseColor(iconColor),
+            corner = Corner.fromApi(corner, Corner.TopEnd),
+            video = VideoUrl.of(video),
         )
-        "exit" -> TvCommand.Exit(id)
+        "dismiss" -> target.asText()?.takeIf { it.isNotBlank() }?.let { TvCommand.Dismiss(orderId, it) }
+        "exit" -> TvCommand.Exit(orderId)
         // Question sans jeton ou sans réponse possible : inutilisable, ignorée.
         "ask" -> {
             val choices = answers.orEmpty().mapNotNull { it.asText()?.takeIf { text -> text.isNotBlank() } }
             ask?.takeIf { it.isNotBlank() && choices.isNotEmpty() }?.let {
                 TvCommand.Ask(
-                    id = id,
+                    id = orderId,
                     ask = it,
                     title = title.orEmpty(),
                     message = message.orEmpty(),
                     answers = choices,
                     timeoutSec = (timeout ?: 0.0).toInt().coerceAtLeast(0),
                     image = imageId,
+                    video = VideoUrl.of(video),
                 )
             }
         }

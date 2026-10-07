@@ -15,6 +15,8 @@ data class Layout(
     val keys: Map<ColorKey, String>? = null,
     /** Bandeau d'infos (`header`) ; vide si le plugin n'en envoie pas. */
     val header: List<HeaderItem> = emptyList(),
+    /** Barre d'état (`status`) ; null : pas de barre. */
+    val status: StatusBar? = null,
 )
 
 /** Le contrat limite le bandeau d'infos (`header`) à 6 éléments. */
