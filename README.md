@@ -423,3 +423,8 @@ ALORS
 - Le plugin copie l'image au moment de l'ordre (une photo suivante ne la remplace pas) et accepte des JPEG ou PNG de 5 Mo au plus. La TV la réduit au décodage pour ménager sa mémoire.
 - Le panneau en superposition affiche le texte d'un message, sans sa vignette.
 
+
+## Licences des composants tiers
+
+- **Material Design Icons** (police et noms d'icônes, `@mdi/font` 7.4.47, [pictogrammers.com](https://pictogrammers.com/library/mdi/)) : Pictogrammers Free License, icônes et police sous licence Apache 2.0. Voir [NOTICE](NOTICE) et [third_party/mdi/LICENSE](third_party/mdi/LICENSE).
+  La police et la correspondance nom → code (`app/src/main/assets/mdi/`) se mettent à jour par `python3 tools/mdi/update_mdi.py [version]` ; les fichiers produits sont commités, le build n'a pas besoin du réseau. Elles ajoutent environ 640 Ko à l'APK.

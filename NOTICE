@@ -1,0 +1,11 @@
+Jeedom TV (be.jeedomtv)
+
+Ce logiciel embarque des composants tiers :
+
+Material Design Icons — police et noms d'icônes (@mdi/font 7.4.47)
+  https://pictogrammers.com/library/mdi/
+  Pictogrammers Free License ; icônes et police sous licence Apache 2.0.
+  Fichiers : app/src/main/assets/mdi/ (police materialdesignicons-webfont.ttf et correspondance
+  codepoints.txt, générée depuis css/materialdesignicons.css par tools/mdi/update_mdi.py).
+  Licence complète : third_party/mdi/LICENSE ; texte de la licence Apache 2.0 :
+  https://www.apache.org/licenses/LICENSE-2.0

@@ -12,7 +12,9 @@ import be.jeedomtv.model.DataStoreSettingsRepository
 import be.jeedomtv.model.driver.JeedomDriverFactory
 import be.jeedomtv.model.driver.JeedomHttpDriver
 import be.jeedomtv.view.MainActivity
+import be.jeedomtv.view.MdiFont
 import be.jeedomtv.view.OverlayWindowManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -46,6 +48,8 @@ class JeedomTvApp : Application() {
             elapsedMs = { SystemClock.elapsedRealtime() },
         )
 
+        // Police des icônes (1,3 Mo) chargée hors du thread principal : la barre d'état n'attend pas.
+        scope.launch(Dispatchers.IO) { MdiFont.warmUp(this@JeedomTvApp) }
         controller.start()
         bringToFrontOnRequest()
         OverlayWindowManager(this, controller, scope).start()
