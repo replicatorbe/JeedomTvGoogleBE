@@ -136,7 +136,13 @@ private fun Header(state: AppState) {
             OfflineIndicator()
             Spacer(Modifier.width(20.dp))
         }
-        state.tvName?.let { Text(it, color = JeedomTvColors.TextMuted, fontSize = 16.sp, maxLines = 1) }
+        // La barre d'état prend la place du nom de la TV : en bas, elle masquerait l'aide.
+        val status = state.status?.takeIf { it.visible }
+        if (status != null) {
+            StatusBarView(status)
+        } else {
+            state.tvName?.let { Text(it, color = JeedomTvColors.TextMuted, fontSize = 16.sp, maxLines = 1) }
+        }
     }
 }
 

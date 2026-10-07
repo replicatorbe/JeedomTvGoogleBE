@@ -35,6 +35,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import be.jeedomtv.controller.AppController
 import be.jeedomtv.controller.RemoteCommand
 import be.jeedomtv.model.AppState
+import be.jeedomtv.model.Corner
 import be.jeedomtv.model.Overlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -62,8 +63,15 @@ class OverlayWindowManager(
     private var notice: OverlayWindow? = null
     private var panel: OverlayWindow? = null
     private var question: OverlayWindow? = null
+    private var statusBar: OverlayWindow? = null
 
     fun start() {
+        scope.launch {
+            controller.state
+                .map { statusWindowKind(it) }
+                .distinctUntilChanged()
+                .collect { showStatusBar(it) }
+        }
         scope.launch {
             controller.state
                 .map { kindOf(it.overlay) }
@@ -96,23 +104,50 @@ class OverlayWindowManager(
         question = add(questionWindow(questionKind))
     }
 
-    private enum class Kind { None, Notice, Panel }
+    /** Barre d'état : fenêtre ajoutée ou retirée (et recréée si elle change de coin). */
+    private fun showStatusBar(corner: Corner?) {
+        Log.i(TAG, "barre d'état : ${corner ?: "masquée"}")
+        statusBar = statusBar?.let { remove(it); null }
+        if (corner == null) return
+        statusBar = add(statusWindow(corner))
+        // Ajoutée en dernier, elle passerait au-dessus : bandeau, panneau et question y sont remis.
+        if (statusBar != null) raiseOthers()
+    }
+
+    private fun raiseOthers() {
+        notice?.let { current ->
+            remove(current)
+            notice = add(noticeWindow(top = noticeTop))
+        }
+        panel?.let { current ->
+            remove(current)
+            panel = add(panelWindow())
+        }
+        keepQuestionOnTop()
+    }
+
+    private enum class Kind { None, NoticeTop, NoticeBottom, Panel }
+
+    /** Bandeau affiché en haut ou en bas de l'écran (coin de la notification). */
+    private var noticeTop = true
 
     private fun kindOf(overlay: Overlay) = when (overlay) {
         Overlay.None -> Kind.None
-        is Overlay.Notice -> Kind.Notice
+        is Overlay.Notice -> if (overlay.banner.corner.isTop) Kind.NoticeTop else Kind.NoticeBottom
         is Overlay.Panel -> Kind.Panel
     }
 
     private fun show(kind: Kind) {
         Log.i(TAG, "superposition : $kind")
-        if (kind != Kind.Notice) notice = notice?.let { remove(it); null }
+        // Bandeau d'un autre coin (haut / bas) : nouvelle fenêtre.
+        notice = notice?.let { remove(it); null }
         if (kind != Kind.Panel) panel = panel?.let { remove(it); null }
         when (kind) {
             Kind.None -> Unit
             // Une question déjà affichée doit rester au-dessus (et garder le focus).
-            Kind.Notice -> if (notice == null) {
-                notice = add(noticeWindow())
+            Kind.NoticeTop, Kind.NoticeBottom -> {
+                noticeTop = kind == Kind.NoticeTop
+                notice = add(noticeWindow(top = noticeTop))
                 keepQuestionOnTop()
             }
             Kind.Panel -> if (panel == null) {
@@ -166,7 +201,27 @@ class OverlayWindowManager(
         }
     }
 
-    private fun noticeWindow(): OverlayWindow {
+    /**
+     * Barre d'état : petite fenêtre dans un coin, ni focusable ni tactile (la télécommande et la
+     * vidéo l'ignorent), avec la marge de sécurité des téléviseurs.
+     */
+    private fun statusWindow(corner: Corner): OverlayWindow {
+        val density = context.resources.displayMetrics.density
+        val params = baseParams().apply {
+            flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            width = WindowManager.LayoutParams.WRAP_CONTENT
+            height = WindowManager.LayoutParams.WRAP_CONTENT
+            gravity = (if (corner.isTop) Gravity.TOP else Gravity.BOTTOM) or (if (corner.isStart) Gravity.START else Gravity.END)
+            x = (STATUS_MARGIN_X_DP * density).toInt()
+            y = (STATUS_MARGIN_Y_DP * density).toInt()
+        }
+        return OverlayWindow(OverlayRoot(context, onKey = null), params) { state ->
+            state.status?.let { StatusBarView(it) }
+        }
+    }
+
+    private fun noticeWindow(top: Boolean): OverlayWindow {
         val params = baseParams().apply {
             flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -174,8 +229,9 @@ class OverlayWindowManager(
             // la largeur du texte seul et écrasait celui-ci quand l'image arrivait.
             width = WindowManager.LayoutParams.MATCH_PARENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = Gravity.TOP
-            y = (24 * context.resources.displayMetrics.density).toInt()
+            gravity = if (top) Gravity.TOP else Gravity.BOTTOM
+            // En bas : au-dessus de la barre d'état (coins du bas), pour ne pas la masquer.
+            y = ((if (top) 24 else 72) * context.resources.displayMetrics.density).toInt()
         }
         return OverlayWindow(OverlayRoot(context, onKey = null), params) { state -> OverlayNoticeView(state) }
     }
@@ -257,6 +313,10 @@ class OverlayWindowManager(
 
     private companion object {
         const val TAG = "JeedomTv"
+
+        /** Marges de la barre d'état : dans la zone sûre d'un téléviseur. */
+        const val STATUS_MARGIN_X_DP = 40
+        const val STATUS_MARGIN_Y_DP = 24
 
         /** Panneau sur un peu plus de la moitié basse de l'écran : la vidéo reste visible au-dessus. */
         const val PANEL_HEIGHT_RATIO = 0.6f
