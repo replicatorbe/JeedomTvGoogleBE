@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -82,9 +83,27 @@ fun OverlayPanelView(state: AppState) {
                 listOf(banner.title, banner.message).filter { it.isNotBlank() }.joinToString(" · "),
                 color = JeedomTvColors.Text,
                 fontSize = 20.sp,
+                // Un long message ne doit pas écraser la grille.
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(JeedomTvColors.SurfaceVariant, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
+        // Ordre refusé, Jeedom injoignable : sans ce message, un interrupteur revenu à son état
+        // d'avant ne disait pas pourquoi.
+        state.notice?.let { notice ->
+            Text(
+                notice,
+                color = JeedomTvColors.Text,
+                fontSize = 20.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(JeedomTvColors.Error.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 6.dp),
             )
         }
