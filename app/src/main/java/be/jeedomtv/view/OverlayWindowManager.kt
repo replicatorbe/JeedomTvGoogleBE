@@ -262,9 +262,8 @@ class OverlayWindowManager(
             // Focusable (pas de FLAG_NOT_FOCUSABLE) : la télécommande pilote le panneau.
             flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             width = WindowManager.LayoutParams.MATCH_PARENT
-            // Un peu plus haut avec le bandeau d'infos, pour garder deux rangées de tuiles.
-            val ratio = if (controller.state.value.header.isEmpty()) PANEL_HEIGHT_RATIO else PANEL_WITH_HEADER_HEIGHT_RATIO
-            height = (context.resources.displayMetrics.heightPixels * ratio).toInt()
+            // Hauteur du contenu : deux rangées de tuiles entières, jamais coupées.
+            height = WindowManager.LayoutParams.WRAP_CONTENT
             gravity = Gravity.BOTTOM
         }
         val root = OverlayRoot(context, onKey = keys::dispatch).apply {
@@ -360,11 +359,7 @@ class OverlayWindowManager(
         const val STATUS_MARGIN_X_DP = 5
         const val STATUS_MARGIN_Y_DP = 5
 
-        /** Panneau sur un peu plus de la moitié basse de l'écran : la vidéo reste visible au-dessus. */
-        const val PANEL_HEIGHT_RATIO = 0.6f
 
-        /** Avec le bandeau d'infos : la vidéo garde un bon tiers de l'écran au-dessus. */
-        const val PANEL_WITH_HEADER_HEIGHT_RATIO = 0.66f
 
         /** Assombrissement de la vidéo derrière une question avec image. */
         const val QUESTION_DIM = 0.4f

@@ -1,6 +1,15 @@
 package be.jeedomtv.view
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -42,11 +51,13 @@ import be.jeedomtv.model.TileType
 import kotlin.math.cos
 import kotlin.math.sin
 
-private val TileShape = RoundedCornerShape(12.dp)
+private val TileShape = RoundedCornerShape(16.dp)
 
 /**
- * Une tuile de la grille : icône, nom, valeur avec unité. La sélection est dessinée d'après
- * l'état ([focused]), pas d'après le focus Compose. Un interrupteur allumé a un fond ambré.
+ * Une tuile de la grille, dans la famille des cartes : pastille d'icône et valeur en haut, pièce
+ * et nom dessous, jauge fine en bas (volet, curseur). Allumée : accent ambre (pastille, état, fond
+ * légèrement teinté) au lieu d'un fond plein. Sélection ([focused], portée par l'état et non par
+ * le focus Compose) : légèrement agrandie, plus claire, liseré blanc et ombre, en 150 ms.
  */
 @Composable
 fun TileView(
@@ -56,70 +67,108 @@ fun TileView(
     flashing: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val on = tile.type == TileType.Switch && tile.isOn
-    val background = when {
-        flashing -> JeedomTvColors.Accent
-        on -> JeedomTvColors.SwitchOn
-        focused -> JeedomTvColors.SurfaceVariant
-        else -> JeedomTvColors.Surface
+    val active = tile.isActive
+    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(FOCUS_MS), label = "focus")
+    val background by animateColorAsState(
+        when {
+            flashing -> SoftBlue.copy(alpha = 0.35f)
+            active && focused -> ActiveAmber.copy(alpha = 0.22f)
+            active -> ActiveAmber.copy(alpha = 0.14f)
+            focused -> Color.White.copy(alpha = 0.14f)
+            else -> Color.White.copy(alpha = 0.06f)
+        },
+        tween(FOCUS_MS),
+        label = "fond",
+    )
+    val outline = when {
+        focused -> Color.White
+        active -> ActiveAmber.copy(alpha = 0.35f)
+        else -> Color.White.copy(alpha = 0.08f)
     }
-    val content = when {
-        flashing -> JeedomTvColors.OnAccent
-        on -> JeedomTvColors.OnSwitchOn
-        else -> JeedomTvColors.Text
-    }
-    val muted = if (flashing || on) content.copy(alpha = 0.75f) else JeedomTvColors.TextMuted
+    val accent = if (active) ActiveAmber else SoftBlue
 
-    Column(
+    BoxWithConstraints(
         modifier
-            .border(
-                width = 4.dp,
-                color = if (focused) JeedomTvColors.Accent else Color.Transparent,
-                shape = TileShape,
-            )
-            .padding(4.dp)
-            .background(background, TileShape)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        val (room, label) = splitRoom(tile.name)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                room.orEmpty(),
-                color = muted,
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            // Touches 1 à 9 : action directe sur la tuile N.
-            if (number in 1..9) {
-                Text(number.toString(), color = muted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
             }
-        }
-        // Le nom prend la place qui reste une fois la valeur placée : deux lignes, une seule, ou
-        // des points de suspension. La valeur, elle, n'est jamais rognée.
-        Text(
-            label,
-            color = content,
-            fontSize = 17.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 20.sp,
-            modifier = Modifier.weight(1f),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            TileIconView(tile.icon, color = if (on || flashing) content else JeedomTvColors.Accent, modifier = Modifier.size(26.dp))
-            FitText(
-                tileValueText(tile),
-                color = if (tile.type == TileType.Switch || tile.type == TileType.Scene || isButtonWithoutValue(tile)) muted else content,
-                maxFontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 24.sp else 19.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
+            .then(if (focused) Modifier.shadow(12.dp, TileShape, ambientColor = Color.Black, spotColor = Color.Black) else Modifier)
+            .clip(TileShape)
+            .background(background)
+            .border(if (focused) 2.dp else 1.dp, outline, TileShape),
+    ) {
+        // Assez de hauteur : le nom peut tenir sur deux lignes ; sinon une seule, jamais coupée à mi-hauteur.
+        val nameLines = if (maxHeight >= 124.dp) 2 else 1
+        Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconPill(tileMdiIcon(tile), if (active) ActiveAmber else if (flashing) Color.White else Color.White.copy(alpha = 0.85f), 34.dp)
+                Spacer(Modifier.width(10.dp))
+                tileCornerText(tile)?.let { text ->
+                    FitText(
+                        text,
+                        color = cornerColor(tile, active),
+                        maxFontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 24.sp else 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        alignEnd = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            val (room, label) = splitRoom(tile.name)
+            if (room != null) {
+                Text(
+                    room,
+                    color = CardTextMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = 18.dp),
+                )
+            }
+            Text(
+                label,
+                color = Color.White,
+                fontSize = 16.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = nameLines,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 18.dp),
             )
+        }
+        // Touches 1 à 9 : action directe sur la tuile N ; discret, dans le coin.
+        if (number in 1..9) {
+            Text(
+                number.toString(),
+                color = Color.White.copy(alpha = 0.35f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 8.dp),
+            )
+        }
+        // Jauge fine du volet ou du curseur, le long du bord bas.
+        tileFraction(tile)?.let { fraction ->
+            Canvas(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp)) {
+                drawRect(Color.White.copy(alpha = 0.10f))
+                drawRect(accent, size = size.copy(width = size.width * fraction))
+            }
         }
     }
 }
+
+/** Couleur de la valeur : ambre si allumé, discrète pour un état éteint ou un simple repère. */
+private fun cornerColor(tile: Tile, active: Boolean): Color = when {
+    active -> ActiveAmber
+    tile.type == TileType.Switch -> Color.White.copy(alpha = 0.6f)
+    tile.type == TileType.Button && tile.value == null -> Color.White.copy(alpha = 0.6f)
+    tile.type == TileType.Shutter && tile.value == null -> Color.White.copy(alpha = 0.6f)
+    else -> Color.White
+}
+
+private const val FOCUS_MS = 150
 
 /** Tailles essayées, de la plus grande à la plus petite, pour qu'une valeur tienne en largeur. */
 private val FitScales = listOf(1f, 0.88f, 0.76f, 0.66f, 0.56f)
@@ -135,10 +184,11 @@ private fun FitText(
     maxFontSize: TextUnit,
     fontWeight: FontWeight,
     modifier: Modifier = Modifier,
+    alignEnd: Boolean = false,
 ) {
     val measurer = rememberTextMeasurer()
     val baseStyle = LocalTextStyle.current.merge(TextStyle(fontWeight = fontWeight))
-    BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
+    BoxWithConstraints(modifier, contentAlignment = if (alignEnd) Alignment.CenterEnd else Alignment.CenterStart) {
         val maxWidth = constraints.maxWidth
         val fontSize = remember(text, maxWidth, maxFontSize, baseStyle) {
             FitScales.map { maxFontSize * it }.firstOrNull { size ->
@@ -380,17 +430,14 @@ private fun DrawScope.drawPower(color: Color, stroke: Stroke) {
 /** Jauge horizontale : piste, remplissage jusqu'à [fraction], repère de la valeur actuelle. */
 @Composable
 fun Gauge(fraction: Float, currentFraction: Float?, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxWidth().height(28.dp)) {
-            val radius = CornerRadius(size.height / 2)
-            drawRoundRect(JeedomTvColors.SurfaceVariant, cornerRadius = radius)
-            drawRoundRect(
-                JeedomTvColors.Accent,
-                size = Size(size.width * fraction.coerceIn(0f, 1f), size.height),
-                cornerRadius = radius,
-            )
-            currentFraction?.let {
-                val x = size.width * it.coerceIn(0f, 1f)
-                drawLine(JeedomTvColors.Text, Offset(x, -6f), Offset(x, size.height + 6f), strokeWidth = 4f)
-            }
+    Canvas(modifier.fillMaxWidth().height(14.dp)) {
+        val radius = CornerRadius(size.height / 2)
+        drawRoundRect(Color.White.copy(alpha = 0.12f), cornerRadius = radius)
+        drawRoundRect(SoftBlue, size = Size(size.width * fraction.coerceIn(0f, 1f), size.height), cornerRadius = radius)
+        // Repère de la valeur actuelle.
+        currentFraction?.let {
+            val x = size.width * it.coerceIn(0f, 1f)
+            drawLine(Color.White, Offset(x, -6f), Offset(x, size.height + 6f), strokeWidth = 4f)
+        }
     }
 }

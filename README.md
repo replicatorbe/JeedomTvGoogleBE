@@ -36,7 +36,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 
 - Pages de tuiles définies dans Jeedom, une rangée d'onglets en haut, une grille de 4 colonnes en dessous.
 - Types de tuiles :
-  - **interrupteur** : allumer / éteindre, fond ambré quand il est allumé ;
+  - **interrupteur** : allumer / éteindre ; allumé, la tuile prend l'accent ambre (pastille, état, fond légèrement teinté) ;
   - **volet** : réglage de la position, ou monter / descendre / stop pour un volet sans retour de position ;
   - **curseur** : réglage d'une consigne entre un minimum et un maximum ;
   - **info** : affichage d'une valeur avec son unité ;
@@ -58,7 +58,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Barre d'état** et **notifications riches** (icône, coin, vidéo en direct de la caméra) : elles remplacent l'application TvOverlay. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
-- La version (« Jeedom TV 0.8.3 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.9.0 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -85,7 +85,7 @@ OK selon la tuile :
 
 Boîte de confirmation : OK confirme, Retour annule.
 
-Un bandeau en bas de l'écran rappelle les touches du contexte.
+Tuiles en cartes (pastille d'icône, valeur ou état en haut, pièce et nom dessous, fine jauge pour un volet ou un curseur, liste de choix avec son choix courant et un chevron) ; la tuile sélectionnée grossit légèrement, s'éclaircit et prend un liseré blanc. Onglets en texte avec l'icône de la page, l'actif souligné. Une ligne courte en bas de l'écran rappelle les touches du contexte.
 
 ## Architecture (MVC)
 
@@ -243,7 +243,7 @@ Sur Google TV, ouvrir une application par-dessus une autre fait passer la vidéo
 | Ordre | Application affichée | Application cachée (film, IPTV…) |
 |---|---|---|
 | Message | Carte dans un coin de l'application | Carte dans un coin de l'écran (en haut à droite par défaut), ~8 s. Elle ne prend pas le focus : la télécommande continue de piloter la vidéo. |
-| Afficher page | Page dans l'application | Panneau presque opaque sur la moitié basse de l'écran : la page en grille compacte. |
+| Afficher page | Page dans l'application | Panneau en bas de l'écran, fond sombre en dégradé (la télé se devine en haut) : onglets et heure, puces d'infos, deux rangées de tuiles entières (défilement au-delà). |
 | Question | Boîte au centre de l'application | Sans image : carte compacte centrée en bas de l'écran (~640 dp), la vidéo reste visible au-dessus. Avec image ou vidéo : carte au centre, vidéo assombrie. Voir [Questions de Jeedom](#questions-de-jeedom). |
 | Quitter | Retour à l'application d'avant | Fermeture de la superposition |
 

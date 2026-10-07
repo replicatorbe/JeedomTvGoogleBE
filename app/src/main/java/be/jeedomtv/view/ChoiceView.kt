@@ -22,7 +22,7 @@ import androidx.tv.material3.Text
 import be.jeedomtv.model.ChoiceMode
 import be.jeedomtv.model.Tile
 
-private val ChoiceShape = RoundedCornerShape(24.dp)
+private val ChoiceShape = RoundedCornerShape(50)
 
 /**
  * Mode de choix d'une tuile `select` : les libellés en « puces », le choix en attente sur fond
@@ -35,14 +35,14 @@ internal fun ChoicePanel(tile: Tile, mode: ChoiceMode, modifier: Modifier = Modi
     Column(
         modifier
             .widthIn(max = 860.dp)
-            .background(JeedomTvColors.Overlay, RoundedCornerShape(16.dp))
-            .padding(horizontal = 32.dp, vertical = if (compact) 12.dp else 28.dp),
+            .jeedomCard()
+            .padding(horizontal = 32.dp, vertical = if (compact) 12.dp else 26.dp),
         verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            TileIconView(tile.icon, JeedomTvColors.Accent, Modifier.size(if (compact) 32.dp else 44.dp))
-            Text(tile.name, color = JeedomTvColors.Text, fontSize = if (compact) 22.sp else 28.sp, fontWeight = FontWeight.SemiBold)
+            IconPill(tileMdiIcon(tile), SoftBlue, if (compact) 36.dp else 44.dp)
+            Text(tile.name, color = Color.White, fontSize = if (compact) 22.sp else 26.sp, fontWeight = FontWeight.SemiBold)
         }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
@@ -54,17 +54,26 @@ internal fun ChoicePanel(tile: Tile, mode: ChoiceMode, modifier: Modifier = Modi
                 val isCurrent = index == current
                 Text(
                     if (isCurrent) "✓ ${choice.label}" else choice.label,
-                    color = if (selected) JeedomTvColors.OnAccent else JeedomTvColors.Text,
+                    color = if (selected) Color(0xFF10141B) else Color.White,
                     fontSize = if (compact) 20.sp else 24.sp,
                     fontWeight = if (selected || isCurrent) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
+                    // Sélection : pilule blanche à texte sombre ; choix actuel : ✓ et contour ambre.
                     modifier = Modifier
-                        .border(3.dp, if (isCurrent) JeedomTvColors.Accent else Color.Transparent, ChoiceShape)
-                        .background(if (selected) JeedomTvColors.Accent else JeedomTvColors.SurfaceVariant, ChoiceShape)
+                        .background(if (selected) Color.White else Color.White.copy(alpha = 0.08f), ChoiceShape)
+                        .border(
+                            if (isCurrent) 2.dp else 1.dp,
+                            when {
+                                isCurrent -> ActiveAmber
+                                selected -> Color.White
+                                else -> Color.White.copy(alpha = 0.3f)
+                            },
+                            ChoiceShape,
+                        )
                         .padding(horizontal = 22.dp, vertical = if (compact) 6.dp else 10.dp),
                 )
             }
         }
-        Text("Actuel : ${tile.choiceLabel ?: "—"}", color = JeedomTvColors.TextMuted, fontSize = 18.sp)
+        Text("Actuel : ${tile.choiceLabel ?: "—"}", color = CardTextMuted, fontSize = 16.sp)
     }
 }

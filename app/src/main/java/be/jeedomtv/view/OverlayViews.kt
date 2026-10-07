@@ -25,6 +25,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,8 +67,10 @@ fun OverlayNoticeView(state: AppState, shown: Boolean = true) {
 internal const val EXIT_FADE_MS = 200
 
 /**
- * Panneau `show` par-dessus la vidéo : onglets, grille compacte de la page, réglage ou
- * confirmation à la place de la grille, bandeau d'un `notify` et rappel des touches.
+ * Panneau `show` par-dessus la vidéo (menu des touches de couleur) : même famille que les cartes.
+ * Fond sombre en dégradé (la télé se devine en haut), coins de 24 dp, liseré fin ; onglets en
+ * texte et heure, puces d'infos, deux rangées de tuiles entières (défilement au-delà), réglage
+ * ou confirmation à la place de la grille, et un rappel des touches court.
  * Les touches passent par le contrôleur, comme sur l'écran des pages.
  */
 @Composable
@@ -70,99 +78,92 @@ fun OverlayPanelView(state: AppState) {
     if (state.overlay !is Overlay.Panel) return
     Column(
         Modifier
-            .fillMaxSize()
-            .background(PanelBackground, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-            .padding(horizontal = 32.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .fillMaxWidth()
+            .clip(PanelShape)
+            .background(PanelGradient)
+            .border(1.dp, CardOutline, PanelShape)
+            .padding(start = 32.dp, end = 32.dp, top = 14.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            val listState = rememberLazyListState()
-            LaunchedEffect(state.pageIndex) {
-                if (state.pages.isNotEmpty()) listState.animateScrollToItem(state.pageIndex)
-            }
-            LazyRow(
-                state = listState,
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
-                    PageTab(page, selected = index == state.pageIndex, targeted = index == state.pageIndex && state.focusZone == FocusZone.Tabs)
-                }
-            }
+            PageTabs(state, Modifier.weight(1f))
             Spacer(Modifier.width(16.dp))
             // Comme sur l'écran des pages : des valeurs peut-être périmées doivent se voir.
             if (state.offline) {
                 OfflineIndicator()
                 Spacer(Modifier.width(16.dp))
             }
-            Text("Jeedom TV", color = JeedomTvColors.Accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(statusClockText(rememberMinuteTime()), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         }
-        // Bandeau d'infos compact (icône et valeur) ; le panneau est un peu plus haut pour lui.
-        if (state.header.isNotEmpty()) InfoHeader(state.header, Modifier.fillMaxWidth(), compact = true)
+        if (state.header.isNotEmpty()) InfoHeader(state.header, Modifier.fillMaxWidth().padding(horizontal = 8.dp), compact = true)
         state.banner?.let { banner ->
-            Text(
-                listOf(banner.title, banner.message).filter { it.isNotBlank() }.joinToString(" · "),
-                color = JeedomTvColors.Text,
-                fontSize = 20.sp,
-                // Un long message ne doit pas écraser la grille.
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(JeedomTvColors.SurfaceVariant, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-            )
+            PanelLine(listOf(banner.title, banner.message).filter { it.isNotBlank() }.joinToString(" · "), Color.White.copy(alpha = 0.08f), maxLines = 2)
         }
         // Ordre refusé, Jeedom injoignable : sans ce message, un interrupteur revenu à son état
         // d'avant ne disait pas pourquoi.
-        state.notice?.let { notice ->
-            Text(
-                notice,
-                color = JeedomTvColors.Text,
-                fontSize = 20.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(JeedomTvColors.Error.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-            )
-        }
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            val page = state.currentPage
-            val adjust = state.adjust
-            val adjustTile = state.adjustTile
-            val confirm = state.confirm
-            when {
-                confirm != null -> ConfirmDialog(confirm)
-                adjust != null && adjustTile != null -> AdjustPanel(adjustTile, adjust, compact = true)
-                state.choice != null && state.choiceTile != null ->
-                    ChoicePanel(state.choiceTile!!, state.choice!!, compact = true)
-                page == null || page.tiles.isEmpty() ->
-                    Text("Aucune tuile sur cette page", color = JeedomTvColors.TextMuted, fontSize = 22.sp)
-                else -> TileGrid(
-                    page,
-                    state,
-                    visibleRows = 2,
-                    // Avec le bandeau, deux rangées tiennent encore : le nom des tuiles passe sur une ligne.
-                    minTileHeight = if (state.header.isEmpty()) MinTileHeight else CompactMinTileHeight,
-                )
+        state.notice?.let { PanelLine(it, JeedomTvColors.Error.copy(alpha = 0.9f), maxLines = 1) }
+        val page = state.currentPage
+        val adjust = state.adjust
+        val adjustTile = state.adjustTile
+        val confirm = state.confirm
+        val choiceTile = state.choiceTile
+        val choice = state.choice
+        // Réglage, choix ou confirmation à la place de la grille, à la même hauteur : rien ne saute.
+        val modalHeight = PanelTileHeight * 2 + 14.dp + 16.dp
+        when {
+            confirm != null -> PanelSlot(modalHeight) { ConfirmDialog(confirm) }
+            adjust != null && adjustTile != null -> PanelSlot(modalHeight) { AdjustPanel(adjustTile, adjust, compact = true) }
+            choice != null && choiceTile != null -> PanelSlot(modalHeight) { ChoicePanel(choiceTile, choice, compact = true) }
+            page == null || page.tiles.isEmpty() -> PanelSlot(PanelTileHeight) {
+                Text("Aucune tuile sur cette page", color = CardTextMuted, fontSize = 18.sp)
             }
+            else -> TileGrid(page, state, visibleRows = 2, fixedTileHeight = PanelTileHeight)
         }
-        HelpBanner(panelHelpText(state))
+        HelpLine(panelHelpText(state))
     }
+}
+
+/** Haut arrondi du panneau ; le bas touche le bord de l'écran. */
+private val PanelShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+
+/** Sombre profond : léger en haut (la télé se devine), ~92 % dès le haut de la grille. */
+private val PanelGradient = Brush.verticalGradient(
+    0f to Color(0x8C10141B),
+    0.3f to Color(0xEB10141B),
+    1f to Color(0xEB10141B),
+)
+
+@Composable
+private fun PanelSlot(height: Dp, content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) { content() }
+}
+
+/** Ligne de message dans le panneau (bandeau d'un `notify`, erreur). */
+@Composable
+private fun PanelLine(text: String, background: Color, maxLines: Int) {
+    Text(
+        text,
+        color = Color.White,
+        fontSize = 16.sp,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(background, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    )
 }
 
 /** Rappel des touches du panneau : Retour ferme, Menu ouvre l'application complète. */
 fun panelHelpText(state: AppState): String {
-    if (state.confirm != null || state.adjust != null || state.choice != null) return helpText(state)
+    modalHelp(state)?.let { return it }
     if (state.focusZone == FocusZone.Tabs) return TABS_HELP
-    val action = okHelp(state.focusedTile?.type)
     return listOfNotNull(
-        "Flèches : choisir",
-        action,
+        "◀▶▲▼ naviguer",
+        okHelp(state.focusedTile?.type),
+        "1-9 tuile",
         pagesHelp(state),
-        "Menu : ouvrir Jeedom TV",
-        "Retour : fermer",
+        "Menu ouvrir l'app",
+        "Retour fermer",
     ).joinToString(" · ")
 }

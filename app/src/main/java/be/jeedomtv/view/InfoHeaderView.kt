@@ -3,6 +3,7 @@ package be.jeedomtv.view
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,12 +29,12 @@ import be.jeedomtv.model.MAX_HEADER_ITEMS
  * Bandeau d'infos de la maison (`header`) : une ligne de « puces » icône, libellé discret au-dessus
  * de la valeur avec unité. Chaque puce a sa largeur naturelle ; si elles ne tiennent pas toutes,
  * seules les plus larges sont réduites (texte coupé par des points de suspension), voir [shareWidths].
- * [compact] : panneau en superposition, sur une ligne, sans libellé.
+ * [compact] : panneau en superposition, un peu plus petit.
  */
 @Composable
 fun InfoHeader(items: List<HeaderItem>, modifier: Modifier = Modifier, compact: Boolean = false) {
     if (items.isEmpty()) return
-    val gap = if (compact) 8.dp else 10.dp
+    val gap = if (compact) 18.dp else 24.dp
     Layout(
         content = { items.take(MAX_HEADER_ITEMS).forEach { InfoChip(it, compact) } },
         modifier = modifier,
@@ -82,26 +83,25 @@ internal fun shareWidths(needs: List<Int>, available: Int): List<Int> {
 
 @Composable
 private fun InfoChip(item: HeaderItem, compact: Boolean, modifier: Modifier = Modifier) {
+    // Puce discrète, sans fond : icône colorée, valeur en blanc, libellé en petit gris.
     Row(
-        modifier
-            .background(JeedomTvColors.Surface, RoundedCornerShape(if (compact) 14.dp else 12.dp))
-            .padding(horizontal = if (compact) 10.dp else 12.dp, vertical = if (compact) 3.dp else 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
+        modifier.padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TileIconView(item.icon, JeedomTvColors.Accent, Modifier.size(if (compact) 18.dp else 24.dp))
-        // Libellé discret au-dessus de la valeur : chacun a toute la largeur de la puce.
-        Column {
-            if (!compact && item.label.isNotBlank()) {
-                OneLine(item.label, color = JeedomTvColors.TextMuted, fontSize = 13.sp, lineHeight = 15.sp)
+        MdiIcon(item.icon.mdiName(), SoftBlue, if (compact) 18.dp else 20.dp)
+        OneLine(
+            headerValueText(item),
+            color = Color.White,
+            fontSize = if (compact) 14.sp else 16.sp,
+            lineHeight = if (compact) 18.sp else 20.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (item.label.isNotBlank()) {
+            // Le libellé cède la place à la valeur quand la largeur manque.
+            Box(Modifier.weight(1f, fill = false)) {
+                OneLine(item.label, color = CardTextMuted, fontSize = if (compact) 12.sp else 13.sp, lineHeight = 16.sp)
             }
-            OneLine(
-                headerValueText(item),
-                color = JeedomTvColors.Text,
-                fontSize = if (compact) 16.sp else 18.sp,
-                lineHeight = if (compact) 20.sp else 21.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
         }
     }
 }

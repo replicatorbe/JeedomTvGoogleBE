@@ -105,16 +105,22 @@ fun StatusBarView(status: StatusBar, modifier: Modifier = Modifier, style: Statu
     }
 }
 
+/** Heure courante, mise à jour au changement de minute seulement (pas de recomposition à chaque seconde). */
 @Composable
-private fun StatusClock(style: StatusBarStyle) {
+internal fun rememberMinuteTime(): Long {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    // Réveil au changement de minute seulement : l'heure n'affiche pas les secondes.
     LaunchedEffect(Unit) {
         while (true) {
             delay(60_000 - System.currentTimeMillis() % 60_000 + 50)
             now = System.currentTimeMillis()
         }
     }
+    return now
+}
+
+@Composable
+private fun StatusClock(style: StatusBarStyle) {
+    val now = rememberMinuteTime()
     Text(
         statusClockText(now),
         style = TextStyle(color = Color.White, fontSize = style.clockSize, fontWeight = style.weight, shadow = StatusShadow),

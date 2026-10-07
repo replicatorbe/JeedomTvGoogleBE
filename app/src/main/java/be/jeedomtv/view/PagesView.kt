@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,7 +48,13 @@ import be.jeedomtv.model.TileType
 
 /** Rangées de tuiles visibles sans défilement ; au-delà, la grille suit la sélection. */
 private const val VISIBLE_ROWS = 3
-private val TileSpacing = 12.dp
+private val TileSpacing = 14.dp
+
+/** Marge intérieure de la grille, pour la tuile agrandie au focus et son ombre. */
+private val GridPadding = 8.dp
+
+/** Hauteur des tuiles dans le panneau : deux rangées entières sous les onglets et les puces. */
+internal val PanelTileHeight = 100.dp
 internal val MinTileHeight = 104.dp
 
 /** Avec le bandeau d'infos : un peu plus bas, le nom de la tuile tient alors sur une ligne. */
@@ -67,16 +75,15 @@ internal val CompactMinTileHeight = 92.dp
 @Composable
 fun PagesView(state: AppState) {
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 18.dp)) {
             Header(state)
             if (state.header.isEmpty()) {
-                Spacer(Modifier.height(14.dp))
-            } else {
-                // Bandeau d'infos sous les onglets ; les espacements se resserrent pour que la
-                // grille garde ses trois rangées.
-                Spacer(Modifier.height(8.dp))
-                InfoHeader(state.header, Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
+            } else {
+                // Puces d'infos discrètes sous les onglets.
+                Spacer(Modifier.height(8.dp))
+                InfoHeader(state.header, Modifier.fillMaxWidth().padding(horizontal = 8.dp))
+                Spacer(Modifier.height(6.dp))
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val page = state.currentPage
@@ -93,8 +100,8 @@ fun PagesView(state: AppState) {
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            HelpBanner(helpText(state))
+            Spacer(Modifier.height(8.dp))
+            HelpLine(helpText(state))
         }
 
         // Voile sur la grille : le panneau de réglage ou la confirmation ressort nettement.
@@ -114,23 +121,11 @@ fun PagesView(state: AppState) {
     }
 }
 
-/** Onglets des pages (CH+ / CH-) et, à droite, le nom de la TV et l'indicateur hors ligne. */
+/** Onglets des pages et, à droite, l'indicateur hors ligne puis la barre d'état (ou le nom de la TV). */
 @Composable
 private fun Header(state: AppState) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        val listState = rememberLazyListState()
-        LaunchedEffect(state.pageIndex) {
-            if (state.pages.isNotEmpty()) listState.animateScrollToItem(state.pageIndex)
-        }
-        LazyRow(
-            state = listState,
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
-                PageTab(page, selected = index == state.pageIndex, targeted = index == state.pageIndex && state.focusZone == FocusZone.Tabs)
-            }
-        }
+        PageTabs(state, Modifier.weight(1f))
         Spacer(Modifier.width(24.dp))
         if (state.offline) {
             OfflineIndicator()
@@ -158,21 +153,60 @@ internal fun OfflineIndicator() {
     }
 }
 
+/**
+ * Onglets des pages, en texte : l'onglet actif en blanc gras, souligné de la couleur d'accent ;
+ * les autres en blanc à 60 %. Focus dans les onglets (flèches) : l'onglet actif prend une pilule
+ * claire cerclée de blanc. Icône MDI de la page devant son nom quand elle se déduit.
+ */
+@Composable
+internal fun PageTabs(state: AppState, modifier: Modifier = Modifier) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.pageIndex) {
+        if (state.pages.isNotEmpty()) listState.animateScrollToItem(state.pageIndex)
+    }
+    LazyRow(
+        state = listState,
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
+            PageTab(page, selected = index == state.pageIndex, targeted = index == state.pageIndex && state.focusZone == FocusZone.Tabs)
+        }
+    }
+}
+
 @Composable
 internal fun PageTab(page: Page, selected: Boolean, targeted: Boolean = false) {
-    val shape = RoundedCornerShape(20.dp)
-    Text(
-        page.name,
-        color = if (selected) JeedomTvColors.OnAccent else JeedomTvColors.TextMuted,
-        fontSize = 20.sp,
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        maxLines = 1,
-        modifier = Modifier
-            .background(if (selected) JeedomTvColors.Accent else JeedomTvColors.Surface, shape)
-            // Onglet ciblé par les flèches : contour marqué, tracé à l'intérieur (la rangée ne bouge pas).
-            .border(3.dp, if (targeted) JeedomTvColors.Text else Color.Transparent, shape)
-            .padding(horizontal = 18.dp, vertical = 6.dp),
-    )
+    val shape = RoundedCornerShape(50)
+    val color = if (selected) Color.White else Color.White.copy(alpha = 0.6f)
+    Column(
+        Modifier
+            .background(if (targeted) Color.White.copy(alpha = 0.14f) else Color.Transparent, shape)
+            .border(2.dp, if (targeted) Color.White else Color.Transparent, shape)
+            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            pageMdiIcon(page)?.let { MdiIcon(it, color, 20.dp) }
+            Text(
+                page.name,
+                color = color,
+                fontSize = 18.sp,
+                lineHeight = 22.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+            )
+        }
+        // Soulignement de l'onglet actif (la place est gardée : la rangée ne bouge pas).
+        Box(
+            Modifier
+                .padding(top = 4.dp)
+                .width(28.dp)
+                .height(3.dp)
+                .background(if (selected) SoftBlue else Color.Transparent, RoundedCornerShape(2.dp)),
+        )
+    }
 }
 
 /** Grille de la page ; [visibleRows] rangées tiennent dans la hauteur disponible (panneau : moins). */
@@ -182,6 +216,8 @@ internal fun TileGrid(
     state: AppState,
     visibleRows: Int = VISIBLE_ROWS,
     minTileHeight: Dp = MinTileHeight,
+    /** Hauteur imposée des tuiles (panneau) : la grille montre exactement [visibleRows] rangées entières. */
+    fixedTileHeight: Dp? = null,
 ) {
     val gridState = rememberLazyGridState()
     // Fait défiler la grille pour garder la tuile sélectionnée visible.
@@ -193,15 +229,24 @@ internal fun TileGrid(
             item.offset.y + item.size.height <= info.viewportEndOffset
         if (!fullyVisible) gridState.animateScrollToItem(state.focusedIndex)
     }
-    // Hauteur calculée pour que trois rangées tiennent à l'écran, quelle que soit la densité de la TV.
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val tileHeight = ((maxHeight - TileSpacing * (visibleRows - 1)) / visibleRows)
-            .coerceAtLeast(minTileHeight)
+    // Panneau : hauteur imposée, rangées entières (jamais coupées) ; écran des pages : hauteur
+    // calculée pour que trois rangées tiennent, quelle que soit la densité de la TV.
+    val rows = ((page.tiles.size + AppState.GRID_COLUMNS - 1) / AppState.GRID_COLUMNS).coerceIn(1, visibleRows)
+    val outer = if (fixedTileHeight != null) {
+        Modifier.fillMaxWidth().height(fixedTileHeight * rows + TileSpacing * (rows - 1) + GridPadding * 2)
+    } else {
+        Modifier.fillMaxSize()
+    }
+    BoxWithConstraints(outer) {
+        val tileHeight = fixedTileHeight
+            ?: ((maxHeight - GridPadding * 2 - TileSpacing * (visibleRows - 1)) / visibleRows).coerceAtLeast(minTileHeight)
         LazyVerticalGrid(
             columns = GridCells.Fixed(AppState.GRID_COLUMNS),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(TileSpacing),
             verticalArrangement = Arrangement.spacedBy(TileSpacing),
+            // Marge autour des tuiles : l'agrandissement et l'ombre de la tuile sélectionnée ne sont pas rognés.
+            contentPadding = PaddingValues(GridPadding),
             userScrollEnabled = false,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -236,14 +281,14 @@ internal fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifi
     Column(
         modifier
             .width(720.dp)
-            .background(JeedomTvColors.Overlay, RoundedCornerShape(16.dp))
-            .padding(horizontal = 40.dp, vertical = if (compact) 12.dp else 32.dp),
+            .jeedomCard()
+            .padding(horizontal = 40.dp, vertical = if (compact) 12.dp else 28.dp),
         verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            TileIconView(tile.icon, JeedomTvColors.Accent, Modifier.size(44.dp))
-            Text(tile.name, color = JeedomTvColors.Text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+            IconPill(tileMdiIcon(tile), SoftBlue, if (compact) 36.dp else 44.dp)
+            Text(tile.name, color = Color.White, fontSize = if (compact) 22.sp else 26.sp, fontWeight = FontWeight.SemiBold)
         }
         val pending = adjust.pending
         val min = tile.min
@@ -251,7 +296,7 @@ internal fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifi
         if (pending != null && min != null && max != null) {
             Text(
                 formatValue(pending, tile.displayUnit),
-                color = JeedomTvColors.Accent,
+                color = SoftBlue,
                 fontSize = if (compact) 36.sp else 56.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -261,11 +306,11 @@ internal fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifi
                 currentFraction = tile.numericValue?.let { ((it - min) / span).toFloat() },
             )
             Row(Modifier.fillMaxWidth()) {
-                Text(formatValue(min, tile.displayUnit), color = JeedomTvColors.TextMuted, fontSize = 18.sp)
+                Text(formatValue(min, tile.displayUnit), color = CardTextMuted, fontSize = 16.sp)
                 Spacer(Modifier.weight(1f))
-                Text("Actuel : ${tileValueText(tile)}", color = JeedomTvColors.TextMuted, fontSize = 18.sp)
+                Text("Actuel : ${tileValueText(tile)}", color = CardTextSecondary, fontSize = 16.sp)
                 Spacer(Modifier.weight(1f))
-                Text(formatValue(max, tile.displayUnit), color = JeedomTvColors.TextMuted, fontSize = 18.sp)
+                Text(formatValue(max, tile.displayUnit), color = CardTextMuted, fontSize = 16.sp)
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(48.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -273,16 +318,21 @@ internal fun AdjustPanel(tile: Tile, adjust: Adjust, modifier: Modifier = Modifi
                 ShutterOrder("■", "Stop (OK)")
                 ShutterOrder("▼", "Descendre")
             }
-            Text("Volet sans retour de position", color = JeedomTvColors.TextMuted, fontSize = 18.sp)
+            Text("Volet sans retour de position", color = CardTextMuted, fontSize = 16.sp)
         }
     }
 }
 
 @Composable
 private fun ShutterOrder(symbol: String, label: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(symbol, color = JeedomTvColors.Accent, fontSize = 48.sp)
-        Text(label, color = JeedomTvColors.Text, fontSize = 18.sp)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier.size(56.dp).background(Color.White.copy(alpha = 0.08f), CircleShape).border(1.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(symbol, color = Color.White, fontSize = 24.sp)
+        }
+        Text(label, color = CardTextSecondary, fontSize = 16.sp)
     }
 }
 
@@ -294,25 +344,24 @@ private fun Notice(text: String, modifier: Modifier = Modifier) {
         color = JeedomTvColors.Text,
         fontSize = 22.sp,
         modifier = modifier
-            .background(JeedomTvColors.Error.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
+            .clip(CardShape)
+            .background(JeedomTvColors.Error.copy(alpha = 0.92f))
+            .border(1.dp, CardOutline, CardShape)
             .padding(horizontal = 24.dp, vertical = 12.dp),
     )
 }
 
-/** Rappel des touches : toute la largeur lui revient (la version est sur l'écran de configuration). */
+/** Rappel des touches : une ligne courte, en petit gris, centrée, sans fond. */
 @Composable
-internal fun HelpBanner(text: String) {
+internal fun HelpLine(text: String) {
     Text(
         text,
-        color = JeedomTvColors.TextMuted,
-        fontSize = 16.sp,
+        color = CardTextMuted,
+        fontSize = 14.sp,
         textAlign = TextAlign.Center,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(JeedomTvColors.Surface, RoundedCornerShape(8.dp))
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
     )
 }
 
@@ -322,48 +371,49 @@ internal val appVersionLabel: String
 
 /** Effet de OK sur la tuile sélectionnée, pour le rappel des touches ; null s'il n'y en a pas. */
 internal fun okHelp(type: TileType?): String? = when (type) {
-    TileType.Switch -> "OK : allumer / éteindre"
-    TileType.Scene -> "OK : lancer"
-    TileType.Button -> "OK : activer"
-    TileType.Select -> "OK : changer"
-    TileType.Shutter, TileType.Slider -> "OK : régler"
+    TileType.Switch -> "OK allumer / éteindre"
+    TileType.Scene -> "OK lancer"
+    TileType.Button -> "OK activer"
+    TileType.Select -> "OK choisir"
+    TileType.Shutter, TileType.Slider -> "OK régler"
     TileType.Info, null -> null
 }
 
-/** Rappel des touches du contexte courant. */
 /** Aide quand le focus est dans les onglets (écran des pages et panneau). */
-internal const val TABS_HELP = "◀ ▶ : changer de page · ▼ / OK : tuiles · Retour : tuiles · CH+/CH- : page"
+internal const val TABS_HELP = "◀▶ changer de page · ▼ / OK tuiles · Retour tuiles"
 
-/**
- * Changement de page : « ▲ : pages » sur la première rangée de tuiles (ou une page vide), d'où ▲
- * monte aux onglets ; ailleurs « CH+/CH- : page ». Une seule des deux, pour que l'aide tienne.
- */
-internal fun pagesHelp(state: AppState): String {
+/** « ▲ pages » sur la première rangée de tuiles (ou une page vide), d'où ▲ monte aux onglets. */
+internal fun pagesHelp(state: AppState): String? {
     val tiles = state.currentPage?.tiles.orEmpty()
-    return if (tiles.isEmpty() || state.focusedIndex < AppState.GRID_COLUMNS) "▲ : pages" else "CH+/CH- : page"
+    return if (tiles.isEmpty() || state.focusedIndex < AppState.GRID_COLUMNS) "▲ pages" else null
 }
 
-fun helpText(state: AppState): String {
-    if (state.confirm != null) return "OK : confirmer · Retour : annuler"
-    if (state.choice != null && state.choiceTile != null) return "◀ ▶ : choisir · OK : envoyer · Retour : annuler"
+/** Rappel des touches d'un mode qui garde la main (confirmation, choix, réglage) ; null sinon. */
+internal fun modalHelp(state: AppState): String? {
+    if (state.confirm != null) return "OK confirmer · Retour annuler"
+    if (state.choice != null && state.choiceTile != null) return "◀▶ choisir · OK envoyer · Retour annuler"
     val tile = state.adjustTile
     val adjust = state.adjust
     if (tile != null && adjust != null) {
-        return if (adjust.pending == null) {
-            "▲ : monter · ▼ : descendre · OK : stop · Retour : sortir"
-        } else {
-            val shutter = if (tile.type == TileType.Shutter) " · CH+ / CH- : monter / descendre" else ""
-            "▲ ▼ : régler · ◀ ▶ : min / max · OK : envoyer · Retour : annuler$shutter"
+        return when {
+            adjust.pending == null -> "▲ monter · ▼ descendre · OK stop · Retour sortir"
+            tile.type == TileType.Shutter -> "▲▼ régler · ◀▶ fermé / ouvert · OK envoyer · Retour annuler"
+            else -> "▲▼ régler · ◀▶ min / max · OK envoyer · Retour annuler"
         }
     }
+    return null
+}
+
+/** Rappel des touches de l'écran des pages. */
+fun helpText(state: AppState): String {
+    modalHelp(state)?.let { return it }
     if (state.focusZone == FocusZone.Tabs) return TABS_HELP
-    val action = okHelp(state.focusedTile?.type)
     return listOfNotNull(
-        "Flèches : choisir",
-        action,
-        "1-9 : tuile",
+        "◀▶▲▼ naviguer",
+        okHelp(state.focusedTile?.type),
+        "1-9 tuile",
         pagesHelp(state),
-        "Menu : réglages",
-        "Retour : quitter",
+        "Menu réglages",
+        "Retour quitter",
     ).joinToString(" · ")
 }

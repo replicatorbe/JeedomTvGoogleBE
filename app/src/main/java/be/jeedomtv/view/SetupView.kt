@@ -83,20 +83,20 @@ fun SetupView(state: AppState, controller: AppController) {
             modifier = Modifier
                 .width(720.dp)
                 .padding(vertical = 24.dp)
-                .background(JeedomTvColors.Surface, RoundedCornerShape(16.dp))
+                .jeedomCard()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 40.dp, vertical = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
                 "Configuration de Jeedom",
-                color = JeedomTvColors.Text,
+                color = Color.White,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 "La clé est affichée sur la page de l'équipement de cette TV, dans le plugin Jeedom TV.",
-                color = JeedomTvColors.TextMuted,
+                color = CardTextSecondary,
                 fontSize = 18.sp,
             )
 
@@ -153,8 +153,8 @@ private fun FormField(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             label,
-            color = if (focused) JeedomTvColors.Accent else JeedomTvColors.TextMuted,
-            fontSize = 18.sp,
+            color = if (focused) Color.White else CardTextMuted,
+            fontSize = 16.sp,
         )
         BasicTextField(
             value = value,
@@ -184,13 +184,13 @@ private fun FormField(
                     }
                 }
                 .background(
-                    if (focused) JeedomTvColors.SurfaceVariant else Color.Black.copy(alpha = 0.3f),
-                    RoundedCornerShape(8.dp),
+                    if (focused) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.05f),
+                    RoundedCornerShape(12.dp),
                 )
                 .border(
-                    width = if (focused) 3.dp else 1.dp,
-                    color = if (focused) JeedomTvColors.Accent else JeedomTvColors.TextMuted.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(8.dp),
+                    width = if (focused) 2.dp else 1.dp,
+                    color = if (focused) Color.White else CardOutline,
+                    shape = RoundedCornerShape(12.dp),
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         )
