@@ -1,5 +1,6 @@
 package be.jeedomtv.model.driver
 
+import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileAction
@@ -450,6 +451,67 @@ class JeedomHttpDriverTest {
         val d = JeedomHttpDriver(JeedomConfig("bad host", "k"), OkHttpClient(), null)
         val e = assertThrowsSuspend<JeedomException> { d.ping() }
         assertEquals("Adresse de Jeedom invalide (bad host)", e.message)
+    }
+
+    @Test
+    fun `layout sans keys - null, la touche rouge ouvrira la premiere page`() = runBlocking {
+        server.enqueue(json(CONTRACT_LAYOUT))
+        assertNull(driver().layout().keys)
+        server.enqueue(json("""{"revision": "r", "pages": [], "keys": null}"""))
+        assertNull(driver().layout().keys)
+    }
+
+    @Test
+    fun `layout avec keys de l'exemple du contrat`() = runBlocking {
+        server.enqueue(
+            json("""{"revision": "r", "pages": [], "keys": {"red": "p1", "green": "scenes", "yellow": "p2", "blue": "p6"}}""")
+        )
+        assertEquals(
+            mapOf(ColorKey.Red to "p1", ColorKey.Green to "scenes", ColorKey.Yellow to "p2", ColorKey.Blue to "p6"),
+            driver().layout().keys,
+        )
+    }
+
+    @Test
+    fun `layout keys - couleurs inconnues, pages vides ou nulles ignorees`() = runBlocking {
+        server.enqueue(
+            json("""{"revision": "r", "pages": [], "keys": {"red": "", "green": null, "purple": "p1", "blue": "p6", "yellow": {"x": 1}}}""")
+        )
+        assertEquals(mapOf(ColorKey.Blue to "p6"), driver().layout().keys)
+        server.enqueue(json("""{"revision": "r", "pages": [], "keys": {}}"""))
+        assertEquals("keys présent mais vide : toutes les couleurs inactives", emptyMap<ColorKey, String>(), driver().layout().keys)
+        server.enqueue(json("""{"revision": "r", "pages": [], "keys": ["p1"]}"""))
+        assertNull("keys illisible : comme absent", driver().layout().keys)
+    }
+
+    @Test
+    fun `layout - tuile button et icone camera`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"revision": "r", "pages": [{"id": "cams", "name": "Caméras", "tiles": [
+                  {"id": "b1", "type": "button", "name": "Portail", "icon": "camera", "confirm": false, "value": null, "unit": ""},
+                  {"id": "b2", "type": "button", "name": "Projecteur", "icon": "light", "confirm": true, "value": "1", "unit": ""}
+                ]}]}
+                """.trimIndent()
+            )
+        )
+        assertEquals(
+            listOf(
+                Tile("b1", TileType.Button, "Portail", TileIcon.Camera, false, null, ""),
+                Tile("b2", TileType.Button, "Projecteur", TileIcon.Light, true, "1", ""),
+            ),
+            driver().layout().pages.single().tiles,
+        )
+    }
+
+    @Test
+    fun `exec press d'un button, sans valeur`() = runBlocking {
+        server.enqueue(json("""{"ok": true, "value": null}"""))
+        assertNull(driver().exec("b1", TileAction.Press))
+        val request = server.takeRequest()
+        assertEquals("exec", request.requestUrl!!.queryParameter("action"))
+        assertEquals("""{"tile":"b1","action":"press"}""", request.body.readUtf8())
     }
 
     @Test

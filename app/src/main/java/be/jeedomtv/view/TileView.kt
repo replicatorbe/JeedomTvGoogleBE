@@ -112,7 +112,7 @@ fun TileView(
             TileIconView(tile.icon, color = if (on || flashing) content else JeedomTvColors.Accent, modifier = Modifier.size(26.dp))
             FitText(
                 tileValueText(tile),
-                color = if (tile.type == TileType.Switch || tile.type == TileType.Scene) muted else content,
+                color = if (tile.type == TileType.Switch || tile.type == TileType.Scene || isButtonWithoutValue(tile)) muted else content,
                 maxFontSize = if (tile.type == TileType.Info || tile.type == TileType.Slider) 24.sp else 19.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
@@ -179,6 +179,7 @@ fun tileValueText(tile: Tile): String = when (tile.type) {
         else -> "Éteint"
     }
     TileType.Scene -> "▶ Lancer"
+    TileType.Button -> if (tile.value == null) "▶" else valueWithUnit(tile)
     TileType.Shutter -> when {
         tile.value == null -> "▲ ▼"
         tile.numericValue != null && tile.numericValue == tile.min -> "Fermé"
@@ -187,6 +188,8 @@ fun tileValueText(tile: Tile): String = when (tile.type) {
     }
     TileType.Slider, TileType.Info -> if (tile.value == null) "—" else valueWithUnit(tile)
 }
+
+private fun isButtonWithoutValue(tile: Tile) = tile.type == TileType.Button && tile.value == null
 
 private fun valueWithUnit(tile: Tile): String {
     val number = tile.numericValue
@@ -257,6 +260,7 @@ fun TileIconView(icon: TileIcon, color: Color, modifier: Modifier = Modifier) {
                 drawRoundRect(color, Offset(w * 0.2f, h * 0.45f), Size(w * 0.6f, h * 0.45f), CornerRadius(w * 0.08f))
             }
             TileIcon.Alarm -> drawBell(color, stroke)
+            TileIcon.Camera -> drawCamera(color, stroke)
             TileIcon.Generic -> {
                 drawRoundRect(color, Offset(w * 0.15f, h * 0.15f), Size(w * 0.7f, h * 0.7f), CornerRadius(w * 0.15f), style = stroke)
                 drawCircle(color, radius = w * 0.1f)
@@ -292,6 +296,18 @@ private fun DrawScope.drawBell(color: Color, stroke: Stroke) {
     }
     drawPath(bell, color, style = stroke)
     drawCircle(color, radius = w * 0.08f, center = Offset(w * 0.5f, h * 0.86f))
+}
+
+/** Caméra : boîtier, objectif et viseur. */
+private fun DrawScope.drawCamera(color: Color, stroke: Stroke) {
+    val w = size.width
+    val h = size.height
+    drawRoundRect(color, Offset(w * 0.1f, h * 0.3f), Size(w * 0.8f, h * 0.55f), CornerRadius(w * 0.1f), style = stroke)
+    drawLine(color, Offset(w * 0.34f, h * 0.18f), Offset(w * 0.52f, h * 0.18f), stroke.width, StrokeCap.Round)
+    drawLine(color, Offset(w * 0.3f, h * 0.3f), Offset(w * 0.34f, h * 0.18f), stroke.width, StrokeCap.Round)
+    drawLine(color, Offset(w * 0.52f, h * 0.18f), Offset(w * 0.56f, h * 0.3f), stroke.width, StrokeCap.Round)
+    drawCircle(color, radius = w * 0.16f, center = Offset(w * 0.5f, h * 0.575f), style = stroke)
+    drawCircle(color, radius = w * 0.04f, center = Offset(w * 0.76f, h * 0.4f))
 }
 
 /** Jauge horizontale : piste, remplissage jusqu'à [fraction], repère de la valeur actuelle. */

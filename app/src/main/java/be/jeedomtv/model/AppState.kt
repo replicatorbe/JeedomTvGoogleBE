@@ -92,6 +92,8 @@ data class AppState(
     val tvName: String? = null,
     val revision: String? = null,
     val pages: List<Page> = emptyList(),
+    /** Raccourcis des touches de couleur (`keys` du layout) ; null si le plugin n'en envoie pas. */
+    val colorKeys: Map<ColorKey, String>? = null,
     /** Page affichée (onglet sélectionné). */
     val pageIndex: Int = 0,
     /** Index (dans la page) de la tuile sélectionnée : porté par l'état, pas par le focus Compose. */
@@ -143,6 +145,24 @@ data class AppState(
                 page = if (screen == Screen.Pages || panel) currentPage?.id else null,
             )
         }
+
+    /**
+     * Les fenêtres de l'application reçoivent elles-mêmes les touches : écran affiché, panneau
+     * ou question en superposition. Sinon, une autre application a le focus de la télécommande.
+     */
+    val ownsRemoteKeys: Boolean
+        get() = uiVisible || overlay is Overlay.Panel || question?.inOverlay == true
+
+    /**
+     * Index de la page associée à la touche [key], ou null si la touche est inactive.
+     * Sans `keys`, la touche rouge ouvre la première page et les autres ne font rien.
+     */
+    fun pageIndexFor(key: ColorKey): Int? {
+        val keys = colorKeys
+            ?: return if (key == ColorKey.Red && pages.isNotEmpty()) 0 else null
+        val id = keys[key] ?: return null
+        return pages.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+    }
 
     fun findTile(id: String): Tile? =
         pages.asSequence().flatMap { it.tiles }.firstOrNull { it.id == id }

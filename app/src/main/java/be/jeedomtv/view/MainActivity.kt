@@ -122,13 +122,13 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Sur l'écran de configuration, les flèches, OK et les chiffres servent à la saisie
-     * et à la navigation Compose : seuls Retour et Menu vont au contrôleur.
+     * et à la navigation Compose : seuls Retour, Menu et les touches de couleur vont au contrôleur.
      */
     private fun shouldForward(command: RemoteCommand): Boolean =
         // Une question passe au-dessus du formulaire : elle reçoit toutes les touches.
         controller.state.value.question != null ||
             controller.state.value.screen != Screen.Setup ||
-            command == RemoteCommand.Back || command == RemoteCommand.Menu
+            command == RemoteCommand.Back || command == RemoteCommand.Menu || command is RemoteCommand.Color
 
     /**
      * Build debug uniquement : configuration passée par adb, le clavier TV rendant la saisie pénible.

@@ -4,6 +4,7 @@ import be.jeedomtv.model.Adjust
 import be.jeedomtv.model.AppModel
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Banner
+import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Overlay
@@ -142,6 +143,8 @@ class AppController(
         current.question?.let { return onQuestionCommand(command, it) }
         // Panneau en superposition : c'est lui qui a le focus, pas l'activité.
         if (current.overlay is Overlay.Panel) return onPanelCommand(command, current)
+        // Touche de couleur captée par le service d'accessibilité pendant une autre application.
+        if (command is RemoteCommand.Color && !current.uiVisible) return onHiddenColor(command.key, current)
         // L'utilisateur a repris la main : un affichage temporaire devient définitif.
         cancelAutoReturn()
         return when (current.screen) {
@@ -577,6 +580,7 @@ class AppController(
             openFullApp()
             return true
         }
+        if (command is RemoteCommand.Color) return onPanelColor(command.key, current)
         current.confirm?.let { return onConfirmCommand(command, it) }
         val adjust = current.adjust
         val adjustTile = current.adjustTile
@@ -586,6 +590,30 @@ class AppController(
             return true
         }
         onGridCommand(command, current)
+        return true
+    }
+
+    /**
+     * Touche de couleur sur le panneau : la page associée s'affiche ; si c'est déjà la page
+     * affichée, le panneau se ferme. Elle passe avant un réglage ou une confirmation en cours.
+     */
+    private fun onPanelColor(key: ColorKey, current: AppState): Boolean {
+        val index = current.pageIndexFor(key) ?: return false
+        if (index == current.pageIndex) {
+            dismissOverlay(restoreSelection = true)
+        } else {
+            update { it.copy(pageIndex = index, focusedIndex = 0, adjust = null, confirm = null) }
+        }
+        return true
+    }
+
+    /**
+     * Touche de couleur pendant qu'une autre application est affichée : le panneau s'ouvre sur
+     * la page associée, comme un ordre `show` sans durée (fermeture après une minute sans touche).
+     */
+    private fun onHiddenColor(key: ColorKey, current: AppState): Boolean {
+        val index = current.pageIndexFor(key) ?: return false
+        show(TvCommand.Show(id = null, page = current.pages[index].id, durationSec = 0))
         return true
     }
 
@@ -682,7 +710,7 @@ class AppController(
             RemoteCommand.Ok -> sendAnswer(question, question.selected)
             is RemoteCommand.Digit -> if (command.value in 1..question.answers.size) selectAnswer(command.value - 1)
             RemoteCommand.Back -> closeQuestion()
-            else -> Unit // CH+/CH-, Menu : la question garde la main.
+            else -> Unit // CH+/CH-, Menu, couleurs : la question garde la main.
         }
         return true
     }
@@ -791,14 +819,28 @@ class AppController(
 
     /** Le formulaire Compose gère lui-même focus et saisie ; seul Retour nous intéresse. */
     private fun onSetupCommand(command: RemoteCommand, current: AppState): Boolean {
-        if (command != RemoteCommand.Back || driver == null || authBlocked || current.config == null) return false
-        update { it.copy(screen = Screen.Pages, error = null) }
+        if (driver == null || authBlocked || current.config == null) return false
+        when (command) {
+            RemoteCommand.Back -> update { it.copy(screen = Screen.Pages, error = null) }
+            // Touche de couleur : la configuration en service reste, la page s'affiche.
+            is RemoteCommand.Color -> {
+                val index = current.pageIndexFor(command.key) ?: return false
+                update { it.copy(screen = Screen.Pages, error = null, pageIndex = index, focusedIndex = 0) }
+            }
+            else -> return false
+        }
         return true
     }
 
     // --- Écran des pages ---------------------------------------------------------------------
 
     private fun onPagesCommand(command: RemoteCommand, current: AppState): Boolean {
+        // Application affichée : la page associée s'affiche directement, réglage ou confirmation abandonnés.
+        if (command is RemoteCommand.Color) {
+            val target = current.pageIndexFor(command.key) ?: return false
+            update { it.copy(pageIndex = target, focusedIndex = 0, adjust = null, confirm = null) }
+            return true
+        }
         current.confirm?.let { return onConfirmCommand(command, it) }
         val adjustTile = current.adjustTile
         val adjust = current.adjust
@@ -829,6 +871,7 @@ class AppController(
             }
             RemoteCommand.Menu -> showSetup()
             RemoteCommand.Back -> return false // Comportement par défaut de l'activité : quitter l'app.
+            is RemoteCommand.Color -> return false // Traitée par onPagesCommand et onPanelColor.
         }
         return true
     }
@@ -864,6 +907,7 @@ class AppController(
         when (tile.type) {
             TileType.Switch -> request(tile, TileAction.Toggle)
             TileType.Scene -> request(tile, TileAction.Run)
+            TileType.Button -> request(tile, TileAction.Press)
             TileType.Info -> Unit
             TileType.Shutter -> enterAdjust(tile, positional = tile.hasRange)
             TileType.Slider -> if (tile.hasRange) enterAdjust(tile, positional = true)
@@ -904,7 +948,7 @@ class AppController(
             RemoteCommand.ChannelDown -> if (tile.type == TileType.Shutter) request(tile, TileAction.Down)
             RemoteCommand.Back -> leaveAdjust()
             RemoteCommand.Menu -> showSetup()
-            is RemoteCommand.Digit -> Unit
+            is RemoteCommand.Digit, is RemoteCommand.Color -> Unit
         }
         return true
     }
@@ -950,7 +994,7 @@ class AppController(
             toggle(target, tile)
             return
         }
-        if (action == TileAction.Run) flash(tile.id)
+        if (action == TileAction.Run || action == TileAction.Press) flash(tile.id)
         scope.launch {
             try {
                 val newValue = target.exec(tile.id, action, value)
@@ -1021,6 +1065,7 @@ class AppController(
         TileAction.Stop -> "Arrêter « ${tile.name} »"
         TileAction.Set -> "Régler « ${tile.name} » sur ${formatValue(value ?: 0.0, tile.unit)}"
         TileAction.Run -> "Lancer « ${tile.name} »"
+        TileAction.Press -> "Activer « ${tile.name} »"
     }
 
     private companion object {
@@ -1111,6 +1156,7 @@ internal fun AppState.withLayout(layout: Layout): AppState {
     return copy(
         revision = layout.revision,
         pages = layout.pages,
+        colorKeys = layout.keys,
         pageIndex = newPageIndex,
         focusedIndex = focusedIndex.coerceIn(0, (tileCount - 1).coerceAtLeast(0)),
         adjust = adjust?.takeIf { it.tileId in ids },

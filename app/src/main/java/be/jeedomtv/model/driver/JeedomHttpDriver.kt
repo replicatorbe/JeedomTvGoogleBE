@@ -1,6 +1,7 @@
 package be.jeedomtv.model.driver
 
 import be.jeedomtv.model.Changes
+import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Page
@@ -265,11 +266,26 @@ private data class LayoutDto(
     val schema: Int? = null,
     val revision: String? = null,
     val pages: List<PageDto>? = null,
+    val keys: JsonElement? = null,
 ) {
     fun toLayout() = Layout(
         revision = revision.orEmpty(),
         pages = pages.orEmpty().mapIndexedNotNull { index, page -> page.toPage(index) },
+        keys = colorKeys(),
     )
+
+    /**
+     * `keys` absent (ou qui n'est pas un objet) : null, la touche rouge ouvrira la première page.
+     * Couleur inconnue ou page vide : ignorée, la touche reste inactive.
+     */
+    private fun colorKeys(): Map<ColorKey, String>? {
+        val obj = keys as? JsonObject ?: return null
+        return obj.entries.mapNotNull { (name, page) ->
+            val key = ColorKey.fromApi(name) ?: return@mapNotNull null
+            val id = page.asText()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            key to id
+        }.toMap()
+    }
 }
 
 @Serializable

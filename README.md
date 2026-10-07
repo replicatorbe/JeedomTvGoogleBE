@@ -12,7 +12,8 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **volet** : réglage de la position, ou monter / descendre / stop pour un volet sans retour de position ;
   - **curseur** : réglage d'une consigne entre un minimum et un maximum ;
   - **info** : affichage d'une valeur avec son unité ;
-  - **scénario** : lancement, avec un bref retour visuel.
+  - **scénario** : lancement, avec un bref retour visuel ;
+  - **bouton** : exécute une commande action choisie dans le plugin (par exemple « Afficher caméra » de CameraOnTv), avec un bref retour visuel. Il affiche « ▶ », ou la valeur de son état s'il en a un. Icône caméra disponible.
 - Valeurs en direct : l'application attend les changements de Jeedom (attente longue) tant qu'elle est affichée.
   - La grille se recharge seule quand les pages changent dans Jeedom.
   - Un indicateur « hors ligne » discret s'affiche quand Jeedom ne répond plus. L'application réessaie toutes les 3 s.
@@ -24,7 +25,8 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **Quitter** : la superposition se ferme, ou l'application passe en arrière-plan.
   - **Question** (bloc « Demander » d'un scénario) : on répond à la télécommande, le scénario continue selon la réponse. Voir [Questions de Jeedom](#questions-de-jeedom).
 - Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée, et version de l'application (info `Version app`).
-- La version (« Jeedom TV 0.4.0 ») s'affiche discrètement sur l'écran de configuration.
+- **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
+- La version (« Jeedom TV 0.5.0 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|
@@ -32,6 +34,7 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
 | OK | Agir sur la tuile (voir ci-dessous) | Envoyer la valeur et sortir | Stop |
 | 1 à 9 | Agir sur la tuile N de la page | – | – |
 | CH+ / CH- | Page suivante / précédente (en boucle) | Volet : monter / descendre | Monter / descendre |
+| Rouge, vert, jaune, bleu | Page associée | Page associée (le réglage est abandonné) | Page associée |
 | Menu | Configuration | Configuration | Configuration |
 | Retour | Quitter | Annuler | Sortir |
 
@@ -41,6 +44,7 @@ OK selon la tuile :
 |---|---|
 | Interrupteur | Bascule. L'affichage change tout de suite, puis Jeedom le corrige si besoin. En cas d'erreur, l'ancienne valeur revient et un message s'affiche 4 s. |
 | Scénario | Lance le scénario. |
+| Bouton | Exécute sa commande Jeedom. |
 | Curseur, volet | Entre en mode réglage. La valeur en attente part de la valeur actuelle. |
 | Info | Rien. |
 
@@ -55,10 +59,12 @@ app/src/main/java/be/jeedomtv/
 ├── JeedomTvApp   Racine de composition : Modèle et Contrôleur vivent aussi longtemps que le processus
 ├── view/OverlayWindowManager   Fenêtres de superposition (bandeau, panneau) hors de toute activité
 ├── JeedomTvService / BootReceiver   Service au premier plan (boucle des changements permanente), démarré avec la TV
+├── ColorKeyService   Service d'accessibilité : touches de couleur captées par-dessus les autres applications
 ├── model/        État de l'application (AppModel, AppState), configuration, pages et tuiles
 │   └── driver/   Interface JeedomDriver + implémentation HTTP (OkHttp, kotlinx.serialization)
 ├── controller/   AppController (écrans, sélection, réglage, confirmation, changements en direct)
-│                 ordres de Jeedom, état signalé, et RemoteKeyMapper (touches → commandes)
+│                 ordres de Jeedom, état signalé, RemoteKeyMapper (touches → commandes)
+│                 et ColorKeyFilter (touches gardées par le service d'accessibilité)
 └── view/         Écrans Compose for TV : configuration, chargement, pages, tuile, confirmation
 ```
 
@@ -209,6 +215,7 @@ Touches du panneau : les mêmes que sur l'écran des pages (flèches, OK, 1 à 9
 |---|---|
 | Retour | Fermer le panneau (ou annuler le réglage / la confirmation en cours) |
 | Menu | Ouvrir l'application complète sur la même page |
+| Touche de couleur | Page associée ; la touche de la page affichée ferme le panneau |
 
 Le panneau se ferme seul après la durée de l'ordre. Une touche de la télécommande annule cette fermeture ; il se ferme alors après une minute sans touche, comme un panneau sans durée. Pour Jeedom, le panneau compte comme un affichage : `Visible` vaut 1 et `Page affichée` donne sa page.
 
@@ -219,6 +226,60 @@ Limites :
 - Le panneau prend le focus de la télécommande : tant qu'il est affiché, les touches ne vont plus à la vidéo. La plupart des lecteurs continuent leur lecture, mais une application qui se met en pause à la perte du focus le ferait.
 - L'écran d'accueil de Google TV compte aussi comme une « application cachée » : le panneau s'y affiche par-dessus.
 - Le panneau ne réagit qu'à la télécommande (pas au toucher ni à la souris).
+
+## Touches de couleur
+
+Dans le plugin, chaque TV associe une page à chaque touche de couleur de la télécommande (champ `keys` de [docs/api.md](docs/api.md#touches-de-couleur-raccourcis-télécommande)). Sans réglage, la touche rouge ouvre la première page et les autres ne font rien.
+
+| Situation | Effet de la touche |
+|---|---|
+| Application affichée | La page associée s'affiche directement. |
+| Panneau en superposition ouvert | Une autre couleur change de page ; la touche de la page affichée ferme le panneau. |
+| Autre application (TV Player, YouTube…) | Le panneau s'ouvre par-dessus, sur la page, comme un ordre « Afficher » sans durée : il se ferme après une minute sans touche, ou par Retour. La vidéo reste au premier plan. |
+| Question de Jeedom affichée | Rien : la question garde la main. |
+
+### Service d'accessibilité (touches par-dessus les autres applications)
+
+Quand une autre application est affichée, c'est elle qui reçoit les touches. Pour capter les touches de couleur à ce moment, l'application fournit un service d'accessibilité, `be.jeedomtv/be.jeedomtv.ColorKeyService`, à activer une fois par adb :
+
+```bash
+SVC=be.jeedomtv/be.jeedomtv.ColorKeyService
+# Lire d'abord le réglage : d'autres services peuvent déjà y être, séparés par « : ».
+CUR=$(adb shell settings get secure enabled_accessibility_services | tr -d '\r')
+case "$CUR" in
+  null|"") NEW=$SVC ;;            # aucun service activé
+  *"$SVC"*) NEW=$CUR ;;           # déjà présent
+  *) NEW="$CUR:$SVC" ;;           # ajouté aux services existants
+esac
+adb shell settings put secure enabled_accessibility_services "$NEW"
+adb shell settings put secure accessibility_enabled 1
+```
+
+Vérification :
+
+```bash
+adb shell settings get secure enabled_accessibility_services   # contient be.jeedomtv/be.jeedomtv.ColorKeyService
+adb shell dumpsys accessibility | grep -E "Bound services|Enabled services"
+# « Bound services » doit citer « Jeedom TV : touches de couleur »
+adb logcat -s JeedomTv | grep "service des touches"            # « service des touches de couleur connecté »
+```
+
+Désactivation : retirer le service de la liste (ou `adb shell settings delete secure enabled_accessibility_services` s'il était seul), puis `adb shell settings put secure accessibility_enabled 0` s'il ne reste aucun service.
+
+Règle du service, pour qu'aucune touche ne soit traitée deux fois ni perdue :
+
+- il ne garde **que** les quatre touches de couleur, et seulement si une page leur est associée (rouge par défaut) et qu'une autre application a le focus. Il consomme alors l'appui et le relâchement, et transmet la touche au contrôleur ;
+- quand l'application, le panneau ou une question est affiché, il laisse passer : la fenêtre de l'application reçoit la touche elle-même. Seule exception : si la touche ferme le panneau, son relâchement est gardé, pour ne pas arriver seul à la vidéo ;
+- toutes les autres touches passent, sans exception. Le service ne lit pas le contenu de l'écran et ne reçoit aucun événement des autres applications.
+
+Sans le service (pas activé, ou désactivé par Android), l'application marche comme avant : les touches de couleur fonctionnent seulement dans l'application et sur le panneau.
+
+Bon à savoir (constaté sur l'émulateur Android 13 ; à confirmer sur la TCL) :
+
+- **Redémarrage de l'application** (plantage, arrêt par le gestionnaire de mémoire) : Android relance le processus et le service en une seconde environ, sans rien à refaire. Le service lié par le système aide d'ailleurs le processus à rester en vie.
+- **Mise à jour par adb** (`adb install -r`, debug comme release) : le service est resté activé et relié aussitôt.
+- **Arrêt forcé** (`adb shell am force-stop be.jeedomtv`, ou « Forcer l'arrêt » dans les paramètres) : Android **retire le service du réglage**. Il faut relancer les commandes d'activation ci-dessus.
+- `adb shell input keyevent KEYCODE_PROG_RED` **n'atteint pas** les services d'accessibilité (les touches injectées ne passent pas par leur filtre) : pour essayer par-dessus une autre application, il faut la vraie télécommande. Dans l'application ou sur le panneau, `input keyevent` fonctionne.
 
 ## Questions de Jeedom
 

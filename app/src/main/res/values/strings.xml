@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Jeedom TV</string>
+    <string name="color_keys_service_label">Jeedom TV : touches de couleur</string>
+    <string name="color_keys_service_summary">Touches de couleur de la télécommande vers les pages Jeedom TV</string>
+    <string name="color_keys_service_description">Ouvre une page de Jeedom TV avec les touches rouge, verte, jaune et bleue de la télécommande, même pendant la télé ou un film. Le service ne garde que ces quatre touches, et seulement quand une page leur est associée ; toutes les autres touches passent normalement. Il ne lit pas le contenu de l\'écran.</string>
 </resources>

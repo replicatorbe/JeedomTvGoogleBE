@@ -268,7 +268,7 @@ internal fun HelpBanner(text: String) {
     )
 }
 
-/** « Jeedom TV 0.4.0 », affiché sur l'écran de configuration. */
+/** « Jeedom TV 0.5.0 », affiché sur l'écran de configuration. */
 internal val appVersionLabel: String
     get() = "Jeedom TV ${BuildConfig.VERSION_NAME}"
 
@@ -288,6 +288,7 @@ fun helpText(state: AppState): String {
     val action = when (state.focusedTile?.type) {
         TileType.Switch -> "OK : allumer / éteindre"
         TileType.Scene -> "OK : lancer"
+        TileType.Button -> "OK : activer"
         TileType.Shutter, TileType.Slider -> "OK : régler"
         TileType.Info, null -> null
     }

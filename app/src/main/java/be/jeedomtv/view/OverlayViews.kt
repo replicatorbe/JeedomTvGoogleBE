@@ -105,6 +105,7 @@ fun panelHelpText(state: AppState): String {
     val action = when (state.focusedTile?.type) {
         TileType.Switch -> "OK : allumer / éteindre"
         TileType.Scene -> "OK : lancer"
+        TileType.Button -> "OK : activer"
         TileType.Shutter, TileType.Slider -> "OK : régler"
         TileType.Info, null -> null
     }

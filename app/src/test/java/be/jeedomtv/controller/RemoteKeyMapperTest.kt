@@ -1,6 +1,7 @@
 package be.jeedomtv.controller
 
 import android.view.KeyEvent
+import be.jeedomtv.model.ColorKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -39,6 +40,14 @@ class RemoteKeyMapperTest {
             assertEquals(RemoteCommand.Digit(n), RemoteKeyMapper.map(KeyEvent.KEYCODE_0 + n))
             assertEquals(RemoteCommand.Digit(n), RemoteKeyMapper.map(KeyEvent.KEYCODE_NUMPAD_0 + n))
         }
+    }
+
+    @Test
+    fun `touches de couleur`() {
+        assertEquals(RemoteCommand.Color(ColorKey.Red), RemoteKeyMapper.map(KeyEvent.KEYCODE_PROG_RED))
+        assertEquals(RemoteCommand.Color(ColorKey.Green), RemoteKeyMapper.map(KeyEvent.KEYCODE_PROG_GREEN))
+        assertEquals(RemoteCommand.Color(ColorKey.Yellow), RemoteKeyMapper.map(KeyEvent.KEYCODE_PROG_YELLOW))
+        assertEquals(RemoteCommand.Color(ColorKey.Blue), RemoteKeyMapper.map(KeyEvent.KEYCODE_PROG_BLUE))
     }
 
     @Test

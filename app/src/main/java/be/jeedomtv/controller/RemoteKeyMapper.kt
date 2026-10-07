@@ -1,6 +1,7 @@
 package be.jeedomtv.controller
 
 import android.view.KeyEvent
+import be.jeedomtv.model.ColorKey
 
 /** Traduit les codes de touches Android (télécommande, clavier) en [RemoteCommand]. */
 object RemoteKeyMapper {
@@ -34,6 +35,11 @@ object RemoteKeyMapper {
             RemoteCommand.Digit(keyCode - KeyEvent.KEYCODE_0)
         in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 ->
             RemoteCommand.Digit(keyCode - KeyEvent.KEYCODE_NUMPAD_0)
+
+        KeyEvent.KEYCODE_PROG_RED -> RemoteCommand.Color(ColorKey.Red)
+        KeyEvent.KEYCODE_PROG_GREEN -> RemoteCommand.Color(ColorKey.Green)
+        KeyEvent.KEYCODE_PROG_YELLOW -> RemoteCommand.Color(ColorKey.Yellow)
+        KeyEvent.KEYCODE_PROG_BLUE -> RemoteCommand.Color(ColorKey.Blue)
 
         else -> null
     }

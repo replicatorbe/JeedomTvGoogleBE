@@ -6,7 +6,10 @@ enum class TileType(val apiName: String) {
     Shutter("shutter"),
     Slider("slider"),
     Info("info"),
-    Scene("scene");
+    Scene("scene"),
+
+    /** Bouton : exécute une commande action choisie dans le plugin (CameraOnTv, portail…). */
+    Button("button");
 
     companion object {
         fun fromApi(name: String?): TileType = entries.firstOrNull { it.apiName == name } ?: Info
@@ -24,6 +27,7 @@ enum class TileIcon(val apiName: String) {
     Fan("fan"),
     Lock("lock"),
     Alarm("alarm"),
+    Camera("camera"),
     Generic("generic");
 
     companion object {
@@ -41,6 +45,7 @@ enum class TileAction(val apiName: String) {
     Stop("stop"),
     Set("set"),
     Run("run"),
+    Press("press"),
 }
 
 /** Une tuile telle que la décrit le plugin. La TV ne connaît jamais les commandes Jeedom derrière. */
