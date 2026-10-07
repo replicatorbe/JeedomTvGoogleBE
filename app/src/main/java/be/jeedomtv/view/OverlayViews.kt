@@ -26,8 +26,7 @@ import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Overlay
 import be.jeedomtv.model.TileType
 
-/** Fond du panneau : semi-transparent, la vidéo reste devinable derrière. */
-/** Presque opaque : l'interface de l'application vidéo (guide, menus) ne doit pas se lire au travers. */
+/** Fond du panneau presque opaque : l'interface de l'application vidéo (guide, menus) ne doit pas se lire au travers. */
 private val PanelBackground = JeedomTvColors.Background.copy(alpha = 0.95f)
 
 /** Bandeau `notify` par-dessus la vidéo (fenêtre ni focusable ni tactile). */
@@ -69,6 +68,11 @@ fun OverlayPanelView(state: AppState) {
                 }
             }
             Spacer(Modifier.width(16.dp))
+            // Comme sur l'écran des pages : des valeurs peut-être périmées doivent se voir.
+            if (state.offline) {
+                OfflineIndicator()
+                Spacer(Modifier.width(16.dp))
+            }
             Text("Jeedom TV", color = JeedomTvColors.Accent, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         }
         // Bandeau d'infos compact (icône et valeur) ; le panneau est un peu plus haut pour lui.

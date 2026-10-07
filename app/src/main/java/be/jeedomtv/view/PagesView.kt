@@ -50,8 +50,12 @@ internal val MinTileHeight = 104.dp
 /** Avec le bandeau d'infos : un peu plus bas, le nom de la tuile tient alors sur une ligne. */
 private val WithHeaderMinTileHeight = 96.dp
 
-/** Plancher du panneau avec bandeau d'infos : nom sur une ligne, valeur entière. */
-internal val CompactMinTileHeight = 80.dp
+/**
+ * Plancher du panneau avec bandeau d'infos : nom sur une ligne, valeur entière. En dessous
+ * (panneau avec un message en plus, par exemple), le nom serait coupé à mi-hauteur : la grille
+ * défile alors plutôt que d'écraser les tuiles.
+ */
+internal val CompactMinTileHeight = 92.dp
 
 /**
  * Écran principal : onglets des pages en haut, grille de tuiles en dessous, bandeau d'aide en bas.
@@ -127,16 +131,22 @@ private fun Header(state: AppState) {
         }
         Spacer(Modifier.width(24.dp))
         if (state.offline) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Box(Modifier.size(10.dp).background(JeedomTvColors.Error, CircleShape))
-                Text("hors ligne", color = JeedomTvColors.Error, fontSize = 18.sp)
-            }
+            OfflineIndicator()
             Spacer(Modifier.width(20.dp))
         }
         state.tvName?.let { Text(it, color = JeedomTvColors.TextMuted, fontSize = 16.sp, maxLines = 1) }
+    }
+}
+
+/** Jeedom ne répond plus : les valeurs affichées peuvent être périmées. */
+@Composable
+internal fun OfflineIndicator() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.size(10.dp).background(JeedomTvColors.Error, CircleShape))
+        Text("hors ligne", color = JeedomTvColors.Error, fontSize = 18.sp)
     }
 }
 
