@@ -11,6 +11,9 @@ import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
 import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.TvState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -655,6 +658,70 @@ class JeedomHttpDriverTest {
         assertEquals("https://jeedom.example/", JeedomHttpDriver.buildBaseUrl("https://jeedom.example").toString())
         assertNull(JeedomHttpDriver.buildBaseUrl(""))
         assertNull(JeedomHttpDriver.buildBaseUrl("bad host"))
+    }
+
+    // --- Robustesse ------------------------------------------------------------------------------
+
+    @Test
+    fun `attente longue annulee - la connexion est fermee aussitot`() = runBlocking {
+        // Jeedom ne répond jamais : sans annulation de l'appel, le thread resterait bloqué 40 s.
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val job = launch(Dispatchers.Default) { driver(readTimeoutMs = 10_000).changes("1") }
+        server.takeRequest(2, TimeUnit.SECONDS)
+        val start = System.nanoTime()
+        job.cancelAndJoin()
+        val elapsedMs = (System.nanoTime() - start) / 1_000_000
+        assertTrue("annulation en $elapsedMs ms", elapsedMs < 1_000)
+    }
+
+    @Test
+    fun `layout - une tuile mal formee est ignoree, les autres restent, confirm 1 accepte`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"revision": "r", "pages": [
+                  {"id": "p1", "name": "Salon", "tiles": [
+                    {"id": "t1", "type": "switch", "name": "Plafond", "confirm": 1, "value": "1"},
+                    {"id": "t2", "type": "slider", "name": {"fr": "objet"}, "min": "bas"},
+                    "pas une tuile",
+                    {"id": "t3", "type": "scene", "name": "Bonne nuit", "confirm": "0"}
+                  ]},
+                  42
+                ],
+                 "header": [{"id": "h1", "label": ["liste"]}, {"id": "h2", "label": "Extérieur", "value": 17}]}
+                """.trimIndent()
+            )
+        )
+        val layout = driver().layout()
+        assertEquals(1, layout.pages.size)
+        val tiles = layout.pages[0].tiles
+        assertEquals(listOf("t1", "t3"), tiles.map { it.id })
+        assertTrue("confirm: 1", tiles[0].confirm)
+        assertEquals("confirm: \"0\"", false, tiles[1].confirm)
+        assertEquals(listOf(HeaderItem("h2", "Extérieur", value = "17")), layout.header)
+    }
+
+    @Test
+    fun `changes - un ordre mal forme n'emporte pas les autres`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"since": 5, "revision": "r",
+                 "changes": [{"tile": "t1", "value": "0"}, "bruit", {"tile": {"id": 1}}],
+                 "commands": [
+                   {"id": 30, "type": "ask", "ask": "j", "message": "Ouvrir ?", "answers": "Oui;Non"},
+                   {"id": 31, "type": "notify", "message": "On sonne", "duration": "dix"},
+                   {"id": 32, "type": "ask", "ask": "k", "message": "Ouvrir ?", "answers": ["Ignorer", "Ouvrir"], "timeout": 45}
+                 ]}
+                """.trimIndent()
+            )
+        )
+        val result = driver().changes("4")
+        assertEquals(listOf(TileChange("t1", "0")), result.changes)
+        assertEquals(
+            listOf(TvCommand.Ask(32, "k", "", "Ouvrir ?", listOf("Ignorer", "Ouvrir"), 45)),
+            result.commands,
+        )
     }
 
     private companion object {

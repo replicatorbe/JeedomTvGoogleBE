@@ -15,8 +15,7 @@ import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
 import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.TvState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -25,19 +24,25 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.ResponseBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resumeWithException
 
 /**
  * Pilote HTTP du plugin `jeetvbe` (contrat : docs/api.md), avec OkHttp et kotlinx.serialization.
@@ -89,10 +94,10 @@ class JeedomHttpDriver internal constructor(
         return Changes(
             since = dto.since.asText() ?: "0",
             revision = dto.revision,
-            changes = dto.changes.orEmpty().mapNotNull { change ->
+            changes = dto.changes.decodeEach<ChangeDto>().mapNotNull { change ->
                 change.tile?.let { TileChange(it, change.value.asText()) }
             },
-            commands = dto.commands.orEmpty().mapNotNull { it.toCommand() },
+            commands = dto.commands.decodeEach<CommandDto>().mapNotNull { it.toCommand() },
         )
     }
 
@@ -141,6 +146,10 @@ class JeedomHttpDriver internal constructor(
     /**
      * Appel authentifié ; [read] lit le corps d'une réponse réussie. Les erreurs sont traduites
      * en exceptions du contrat [JeedomDriver] (corps JSON `error` pour les codes d'erreur).
+     *
+     * Appel asynchrone d'OkHttp, annulé avec la coroutine : une attente longue abandonnée (réveil,
+     * nouvelle configuration) ferme aussitôt sa connexion au lieu de bloquer un thread jusqu'à 40 s,
+     * et sa réponse tardive, qui pourrait porter des ordres, n'arrive pas dans le vide.
      */
     private suspend fun <T> call(
         action: String,
@@ -163,30 +172,50 @@ class JeedomHttpDriver internal constructor(
             .apply { if (body != null) post(body.toRequestBody(JSON_MEDIA_TYPE)) }
             .build()
         val call = httpClient.newCall(request)
-        return runInterruptible(Dispatchers.IO) {
-            try {
-                call.execute().use { response ->
-                    val responseBody = response.body
-                    when {
-                        response.code == 401 -> throw AuthenticationException("Clé refusée par Jeedom")
-                        !response.isSuccessful -> {
-                            val text = responseBody?.string().orEmpty()
-                            throw JeedomException(
-                                errorMessage(text) ?: "Erreur de Jeedom (HTTP ${response.code})",
-                                httpCode = response.code,
-                            )
-                        }
-                        responseBody == null -> throw JeedomException("Réponse de Jeedom vide")
-                        else -> read(responseBody)
-                    }
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resumeWithException(networkError(e, url))
                 }
-            } catch (e: SocketTimeoutException) {
-                throw JeedomException("Jeedom ne répond pas (${url.host})", e)
-            } catch (e: IOException) {
-                throw JeedomException("Jeedom injoignable (${url.host})", e)
-            }
+
+                // Sur un thread d'OkHttp : le corps y est lu, jamais sur le thread principal.
+                override fun onResponse(call: Call, response: Response) {
+                    val result = try {
+                        Result.success(response.use { handle(it, read) })
+                    } catch (e: IOException) {
+                        Result.failure(networkError(e, url))
+                    } catch (e: JeedomException) {
+                        Result.failure(e)
+                    }
+                    continuation.resumeWith(result)
+                }
+            })
         }
     }
+
+    private fun <T> handle(response: Response, read: (ResponseBody) -> T): T {
+        val responseBody = response.body
+        return when {
+            response.code == 401 -> throw AuthenticationException("Clé refusée par Jeedom")
+            !response.isSuccessful -> {
+                val text = responseBody?.string().orEmpty()
+                throw JeedomException(
+                    errorMessage(text) ?: "Erreur de Jeedom (HTTP ${response.code})",
+                    httpCode = response.code,
+                )
+            }
+            responseBody == null -> throw JeedomException("Réponse de Jeedom vide")
+            else -> read(responseBody)
+        }
+    }
+
+    private fun networkError(e: IOException, url: HttpUrl): JeedomException =
+        if (e is SocketTimeoutException) {
+            JeedomException("Jeedom ne répond pas (${url.host})", e)
+        } else {
+            JeedomException("Jeedom injoignable (${url.host})", e)
+        }
 
     private inline fun <reified T> decode(text: String): T = try {
         json.decodeFromString<T>(text)
@@ -214,13 +243,6 @@ class JeedomHttpDriver internal constructor(
         const val MAX_IMAGE_BYTES = 5L * 1024 * 1024
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        private val json = Json {
-            ignoreUnknownKeys = true
-            coerceInputValues = true
-            isLenient = true
-            explicitNulls = false
-        }
-
         private val sharedClient: OkHttpClient by lazy {
             OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
@@ -246,6 +268,36 @@ class JeedomHttpDriver internal constructor(
     }
 }
 
+/** Lecture tolérante : le plugin évolue en parallèle, un champ inattendu ne doit rien casser. */
+private val json = Json {
+    ignoreUnknownKeys = true
+    coerceInputValues = true
+    isLenient = true
+    explicitNulls = false
+}
+
+/**
+ * Éléments d'une liste décodés un à un : un élément mal formé (tuile, ordre, info…) est ignoré
+ * au lieu de faire échouer toute la réponse, et avec elle les ordres livrés une seule fois.
+ */
+private inline fun <reified T> List<JsonElement>?.decodeEach(): List<T> = orEmpty().mapNotNull {
+    try {
+        json.decodeFromJsonElement<T>(it)
+    } catch (e: SerializationException) {
+        null
+    } catch (e: IllegalArgumentException) {
+        null
+    }
+}
+
+/** Booléen tolérant : `true`, `1`, `"1"` ou `"true"` ; null sinon. */
+private fun JsonElement?.asFlag(): Boolean? {
+    val primitive = this as? JsonPrimitive ?: return null
+    if (primitive is JsonNull) return null
+    primitive.booleanOrNull?.let { return it }
+    return primitive.contentOrNull?.trim()?.toDoubleOrNull()?.let { it != 0.0 }
+}
+
 /** Valeur brute : chaîne telle quelle, nombre en texte, null sinon. */
 private fun JsonElement?.asText(): String? = when (this) {
     null, JsonNull -> null
@@ -257,7 +309,7 @@ private fun JsonElement?.asText(): String? = when (this) {
 
 @Serializable
 private data class PingDto(
-    val ok: Boolean? = null,
+    val ok: JsonElement? = null,
     val schema: Int? = null,
     val tv: TvDto? = null,
     val jeedom: String? = null,
@@ -271,15 +323,15 @@ private data class TvDto(val id: Long? = null, val name: String? = null)
 private data class LayoutDto(
     val schema: Int? = null,
     val revision: String? = null,
-    val pages: List<PageDto>? = null,
+    val pages: List<JsonElement>? = null,
     val keys: JsonElement? = null,
-    val header: List<HeaderItemDto>? = null,
+    val header: List<JsonElement>? = null,
 ) {
     fun toLayout() = Layout(
         revision = revision.orEmpty(),
-        pages = pages.orEmpty().mapIndexedNotNull { index, page -> page.toPage(index) },
+        pages = pages.decodeEach<PageDto>().mapIndexed { index, page -> page.toPage(index) },
         keys = colorKeys(),
-        header = header.orEmpty().mapNotNull { it.toItem() }.take(MAX_HEADER_ITEMS),
+        header = header.decodeEach<HeaderItemDto>().mapNotNull { it.toItem() }.take(MAX_HEADER_ITEMS),
     )
 
     /**
@@ -324,12 +376,12 @@ private data class HeaderItemDto(
 private data class PageDto(
     val id: String? = null,
     val name: String? = null,
-    val tiles: List<TileDto>? = null,
+    val tiles: List<JsonElement>? = null,
 ) {
     fun toPage(index: Int) = Page(
         id = id ?: "page-$index",
         name = name ?: "Page ${index + 1}",
-        tiles = tiles.orEmpty().mapNotNull { it.toTile() },
+        tiles = tiles.decodeEach<TileDto>().mapNotNull { it.toTile() },
     )
 }
 
@@ -339,13 +391,13 @@ private data class TileDto(
     val type: String? = null,
     val name: String? = null,
     val icon: String? = null,
-    val confirm: Boolean? = null,
+    val confirm: JsonElement? = null,
     val value: JsonElement? = null,
     val unit: String? = null,
     val min: Double? = null,
     val max: Double? = null,
     val step: Double? = null,
-    val choices: List<ChoiceDto>? = null,
+    val choices: List<JsonElement>? = null,
 ) {
     /** Une tuile sans id est inutilisable (aucun ordre possible) : elle est ignorée. */
     fun toTile(): Tile? {
@@ -355,13 +407,13 @@ private data class TileDto(
             type = TileType.fromApi(type),
             name = name.orEmpty(),
             icon = TileIcon.fromApi(icon),
-            confirm = confirm ?: false,
+            confirm = confirm.asFlag() ?: false,
             value = (value as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull,
             unit = unit.orEmpty(),
             min = min,
             max = max,
             step = step,
-            choices = choices.orEmpty().mapNotNull { it.toChoice() },
+            choices = choices.decodeEach<ChoiceDto>().mapNotNull { it.toChoice() },
         )
     }
 }
@@ -376,14 +428,14 @@ private data class ChoiceDto(val value: JsonElement? = null, val label: String? 
 }
 
 @Serializable
-private data class ExecDto(val ok: Boolean? = null, val value: JsonElement? = null)
+private data class ExecDto(val ok: JsonElement? = null, val value: JsonElement? = null)
 
 @Serializable
 private data class ChangesDto(
     val since: JsonElement? = null,
     val revision: String? = null,
-    val changes: List<ChangeDto>? = null,
-    val commands: List<CommandDto>? = null,
+    val changes: List<JsonElement>? = null,
+    val commands: List<JsonElement>? = null,
 )
 
 @Serializable
