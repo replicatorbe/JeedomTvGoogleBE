@@ -57,7 +57,8 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Bandeau d'infos** : jusqu'à 6 infos de la maison (température extérieure, poubelles, production solaire…) choisies dans Jeedom, sous les onglets et dans le panneau en superposition. Voir [Bandeau d'infos](#bandeau-dinfos).
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
-- La version (« Jeedom TV 0.7.2 ») s'affiche discrètement sur l'écran de configuration.
+- **Barre d'état** et **notifications riches** (icône, coin, vidéo en direct de la caméra) : elles remplacent l'application TvOverlay. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
+- La version (« Jeedom TV 0.8.0 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -95,6 +96,7 @@ app/src/main/java/be/jeedomtv/
 ├── JeedomTvService / BootReceiver   Service au premier plan (boucle des changements permanente), démarré avec la TV
 ├── ColorKeyService   Service d'accessibilité : touches de couleur captées par-dessus les autres applications
 ├── view/HomeDreamService   Écran de veille (DreamService) : horloge et infos du bandeau
+├── view/StatusBarView, LiveVideo, MdiIcon   Barre d'état, vidéo en direct (Media3), icônes Material Design
 ├── model/        État de l'application (AppModel, AppState), configuration, pages et tuiles
 │   └── driver/   Interface JeedomDriver + implémentation HTTP (OkHttp, kotlinx.serialization)
 ├── controller/   AppController (écrans, sélection, réglage, confirmation, changements en direct)
@@ -423,6 +425,41 @@ ALORS
 - Le plugin copie l'image au moment de l'ordre (une photo suivante ne la remplace pas) et accepte des JPEG ou PNG de 5 Mo au plus. La TV la réduit au décodage pour ménager sa mémoire.
 - Le panneau en superposition affiche le texte d'un message, sans sa vignette.
 
+
+## Barre d'état et notifications (remplace TvOverlay)
+
+Jeedom TV reprend ce que faisait l'application **TvOverlay** (`com.tabdeveloper.tvoverlay`) : l'horloge et les indicateurs en permanence dans un coin de l'écran, et les notifications temporaires, avec la vidéo de la caméra. Le plugin fournit des commandes au format TvOverlay ([docs/api.md](docs/api.md#côté-jeedom--compatibilité-tvoverlay)) : les scénarios existants n'ont qu'à changer de commande. Une fois Jeedom TV en place, TvOverlay peut être désinstallée ou désactivée (`adb shell pm disable-user --user 0 com.tabdeveloper.tvoverlay`).
+
+### Barre d'état
+
+- Dans un coin (`corner`, en bas à gauche par défaut), **par-dessus toutes les applications** : l'heure (24 h), puis les indicateurs calculés par le plugin, chacun avec une icône Material Design (`mdi:weather-rainy`…), un texte facultatif (« 18° »), une couleur d'icône, une bordure, un fond et une forme (rond, arrondi, rectangle). Exemple : « 19:20 · [pluie] 18° · [poubelle orange] · [cadenas ouvert orange] ».
+- Fond transparent et texte ombré : lisible sur n'importe quelle image. Opacité réglable (`opacity`, 0 = masquée).
+- Fenêtre ni focusable ni tactile : la télécommande et la vidéo l'ignorent. Le bandeau d'un message, le panneau et une question passent au-dessus.
+- Dans l'application, sur l'écran des pages, elle prend la place du nom de la TV, en haut à droite : dans un coin du bas, elle masquerait l'aide.
+- Mise à jour en direct par la boucle des changements (état complet de la barre) ; l'heure se redessine une fois par minute, sans autre animation.
+- Effacée pendant l'écran de veille de Jeedom TV (il a sa propre horloge) et écran éteint.
+- Sans la permission « afficher par-dessus » : pas de barre hors de l'application (et aucun plantage).
+
+### Notifications riches
+
+L'ordre `notify` (commande `Message`, ou `Notifier (JSON)` au format TvOverlay) accepte en plus :
+
+| Champ | Effet |
+|---|---|
+| `tag` | Identifiant de la notification : une nouvelle notification remplace celle affichée ; `Retirer une notification` (ordre `dismiss`) la retire aussitôt. |
+| `icon`, `iconColor` | Icône Material Design à gauche du texte, quand il n'y a ni image ni vidéo. |
+| `corner` | Coin du bandeau par-dessus une autre application : en haut à droite par défaut. En bas, il se place au-dessus de la barre d'état. |
+| `video` | Flux en direct (`rtsp://` des caméras, ou HLS `…m3u8`), **sans le son**, dans une petite fenêtre du bandeau (320 × 180 dp). L'image jointe sert d'attente puis de repli si le flux ne vient pas. |
+
+Une **question** (bloc « Demander ») peut aussi porter une vidéo : elle remplace la photo, à la même place, l'image servant d'attente et de repli. Le lecteur est libéré dès la réponse envoyée.
+
+Lecture vidéo (Media3 ExoPlayer, comme CameraOnTv) :
+
+- RTSP en TCP (plus fiable en Wi-Fi), petits tampons pour la latence, piste audio non décodée.
+- **Un seul flux à la fois** : la TCL n'a que deux décodeurs matériels, dont un pour la télé. Une question avec vidéo garde le décodeur ; un bandeau affiché en même temps montre alors son image.
+- Le lecteur est libéré à la fermeture du bandeau, à la réponse à la question, ou quand l'application passe en arrière-plan. Trois tentatives au plus si le flux échoue, puis l'image reste.
+- **Les URL des caméras ne sont jamais écrites dans les journaux** (elles contiennent les identifiants) : les journaux de Media3 sont coupés, et l'URL n'apparaît pas dans les objets de l'état.
+- La vidéo n'est jouée que sur la TV : le plugin garde les URL (sources nommées, voir le contrat), la TV ne les enregistre pas.
 
 ## Licences des composants tiers
 

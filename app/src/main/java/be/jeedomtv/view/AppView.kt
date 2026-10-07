@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -44,7 +45,9 @@ fun AppView(controller: AppController) {
             Screen.Loading -> LoadingView()
             Screen.Pages -> PagesView(state)
         }
-        state.banner?.let { BannerView(it, Modifier.align(Alignment.TopCenter).padding(top = 24.dp)) }
+        state.banner?.let {
+            BannerView(it, Modifier.align(Alignment.TopCenter).padding(top = 24.dp), videoAllowed = bannerVideoAllowed(state))
+        }
         // Question de Jeedom dans l'application (en superposition, c'est une fenêtre à part).
         state.question?.takeIf { !it.inOverlay }?.let { question ->
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
@@ -55,9 +58,10 @@ fun AppView(controller: AppController) {
 
 /** Message de Jeedom (ordre `notify`), au-dessus de tout écran pendant quelques secondes. */
 @Composable
-internal fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
+internal fun BannerView(banner: Banner, modifier: Modifier = Modifier, videoAllowed: Boolean = true) {
     val shape = RoundedCornerShape(12.dp)
     val thumbnail by rememberDecodedImage(banner.imageBytes, maxWidth = THUMBNAIL_MAX_PX, maxHeight = THUMBNAIL_MAX_PX)
+    val video = banner.video?.takeIf { videoAllowed }
     Row(
         modifier
             .widthIn(max = 960.dp)
@@ -67,8 +71,22 @@ internal fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        when {
+            // Vidéo en direct (caméra) dans une petite fenêtre ; l'image sert d'attente et de repli.
+            video != null -> LiveVideo(
+                video,
+                placeholder = thumbnail,
+                modifier = Modifier.width(BANNER_VIDEO_WIDTH).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)),
+            )
+            // Sans image ni vidéo : l'icône MDI de la notification, s'il y en a une.
+            thumbnail == null && banner.image == null && banner.icon != null -> MdiIcon(
+                banner.icon,
+                color = banner.iconColor?.let { Color(it) } ?: JeedomTvColors.Accent,
+                size = 48.dp,
+            )
+        }
         // Vignette de l'image jointe (photo du portier…), à gauche du texte.
-        thumbnail?.let { image ->
+        thumbnail?.takeIf { video == null }?.let { image ->
             Image(
                 bitmap = image,
                 contentDescription = null,
@@ -87,6 +105,15 @@ internal fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** Largeur de la petite fenêtre vidéo d'un bandeau (16:9). */
+private val BANNER_VIDEO_WIDTH = 320.dp
+
+/**
+ * Un seul flux vidéo à la fois : la TV n'a que deux décodeurs, dont un pour la télé elle-même.
+ * Une question avec vidéo garde le décodeur ; le bandeau montre alors son image.
+ */
+fun bannerVideoAllowed(state: be.jeedomtv.model.AppState): Boolean = state.question?.video == null
 
 /** Plus grand côté visé au décodage d'une vignette de bandeau. */
 private const val THUMBNAIL_MAX_PX = 480

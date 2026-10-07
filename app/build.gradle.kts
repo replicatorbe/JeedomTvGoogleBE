@@ -13,8 +13,8 @@ android {
         applicationId = "be.jeedomtv"
         minSdk = 28
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.7.2"
+        versionCode = 10
+        versionName = "0.8.0"
     }
 
     buildTypes {
@@ -57,6 +57,11 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    // Vidéo en direct des notifications et des questions (caméras RTSP, flux HLS).
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.rtsp)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.ui)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

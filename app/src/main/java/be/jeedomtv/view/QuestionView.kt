@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -58,7 +59,9 @@ fun QuestionDialog(question: Question, modifier: Modifier = Modifier) {
     // Photo jointe (portier…) : décodée à la taille utile, hors du thread principal.
     val photo by rememberDecodedImage(question.imageBytes, maxWidth = PHOTO_MAX_PX, maxHeight = PHOTO_MAX_PX)
     val image = photo
-    if (image == null) {
+    // Vidéo en direct tant qu'on choisit : dès la réponse envoyée, le lecteur est libéré.
+    val video = question.video?.takeIf { question.status == QuestionStatus.Choosing }
+    if (image == null && question.video == null) {
         Column(
             modifier
                 .widthIn(min = 560.dp, max = 900.dp)
@@ -82,16 +85,29 @@ fun QuestionDialog(question: Question, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Image(
-                bitmap = image,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .weight(0.45f)
-                    .heightIn(max = 460.dp)
-                    .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
-                    .clip(PhotoShape),
-            )
+            when {
+                // La vidéo remplace la photo, à la même place ; la photo sert d'attente et de repli.
+                video != null -> LiveVideo(
+                    video,
+                    placeholder = image,
+                    modifier = Modifier.weight(0.45f).heightIn(max = 460.dp).aspectRatio(16f / 9f).clip(PhotoShape),
+                )
+                image != null -> Image(
+                    bitmap = image,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .weight(0.45f)
+                        .heightIn(max = 460.dp)
+                        .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
+                        .clip(PhotoShape),
+                )
+                // Réponse envoyée, sans photo : le cadre noir reste, la mise en page ne saute pas.
+                else -> Box(
+                    Modifier.weight(0.45f).heightIn(max = 460.dp).aspectRatio(16f / 9f).clip(PhotoShape)
+                        .background(Color.Black),
+                )
+            }
             Column(
                 Modifier.weight(0.55f),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -116,7 +132,7 @@ enum class QuestionWindowKind { None, Banner, Dialog }
 fun questionWindowKind(state: AppState): QuestionWindowKind {
     val question = state.question?.takeIf { it.inOverlay } ?: return QuestionWindowKind.None
     // L'identifiant suffit : la mise en page ne change pas quand la photo arrive.
-    return if (question.image == null) QuestionWindowKind.Banner else QuestionWindowKind.Dialog
+    return if (question.image == null && question.video == null) QuestionWindowKind.Banner else QuestionWindowKind.Dialog
 }
 
 /** Rappel des touches d'une question : les chiffres 1 à 9 ne valent que pour 9 réponses au plus. */

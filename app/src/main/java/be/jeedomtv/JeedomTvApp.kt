@@ -36,8 +36,11 @@ class JeedomTvApp : Application() {
 
     private val scope = MainScope()
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        // Journaux de Media3 coupés : leurs messages d'erreur citent l'URL des caméras (identifiants).
+        androidx.media3.common.util.Log.setLogLevel(androidx.media3.common.util.Log.LOG_LEVEL_OFF)
         model = AppModel()
         val settings = DataStoreSettingsRepository(this)
         val driverFactory = JeedomDriverFactory { config -> JeedomHttpDriver(config) }
