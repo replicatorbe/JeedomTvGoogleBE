@@ -588,7 +588,8 @@ class AppControllerTest {
         down = true
         factory.failChanges(JeedomException("Jeedom injoignable"))
         factory.failChanges(JeedomException("Jeedom injoignable"))
-        advanceTimeBy(6_100)
+        // Pauses de 3 s puis 6 s : Jeedom reste injoignable.
+        advanceTimeBy(9_100)
         assertTrue(c.state.value.offline)
         assertEquals(listOf(null, null, null), factory.changesCalls)
         assertEquals(Screen.Pages, c.state.value.screen)

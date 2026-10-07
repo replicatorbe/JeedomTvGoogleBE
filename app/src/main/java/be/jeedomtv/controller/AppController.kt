@@ -114,6 +114,19 @@ class AppController(
     /** Téléchargement de l'image jointe au bandeau en cours (dans l'application ou par-dessus). */
     private var bannerImageJob: Job? = null
 
+    /**
+     * Horodatage logique de la dernière valeur connue de chaque tuile (optimiste, `changes`,
+     * réponse d'`exec`) : la réponse tardive d'un ordre n'écrase pas une valeur plus récente.
+     */
+    private var valueClock = 0L
+    private val tileStamps = HashMap<String, Long>()
+
+    /** Horodatage du dernier layout : il vaut pour toutes les tuiles sans valeur plus récente. */
+    private var layoutStamp = 0L
+
+    /** Configuration dont viennent les ids d'ordres déjà traités (une autre TV a sa propre suite). */
+    private var handledCommandsConfig: JeedomConfig? = null
+
     /** Au lancement : configuration enregistrée → connexion, sinon écran de configuration. */
     fun start() {
         launchExclusive {
@@ -218,12 +231,8 @@ class AppController(
             val layout = newDriver.layout()
             // Une connexion annulée entre-temps ne doit pas écraser l'état.
             currentCoroutineContext().ensureActive()
-            driver = newDriver
-            authBlocked = false
-            update {
-                it.copy(tvName = ping.tvName, offline = false, error = null).withLayout(layout)
-                    .copy(screen = Screen.Pages)
-            }
+            useDriver(newDriver, config)
+            applyLayout(layout) { it.copy(tvName = ping.tvName, offline = false, error = null).copy(screen = Screen.Pages) }
             startChangesLoop(reloadFirst = false)
         } catch (e: CancellationException) {
             throw e
@@ -235,11 +244,23 @@ class AppController(
                 ensureChangesLoop()
             } else {
                 // Jeedom injoignable au démarrage : la boucle réessaie et chargera les pages.
-                driver = newDriver
-                authBlocked = false
+                useDriver(newDriver, config)
                 update { it.copy(screen = Screen.Pages, offline = true, error = null) }
                 startChangesLoop(reloadFirst = false)
             }
+        }
+    }
+
+    /**
+     * Nouveau pilote en service. Les ids d'ordres déjà traités ne valent que pour la TV qui les a
+     * numérotés : avec une autre clé (autre équipement Jeedom), la suite repart de zéro.
+     */
+    private fun useDriver(newDriver: JeedomDriver, config: JeedomConfig) {
+        driver = newDriver
+        authBlocked = false
+        if (config != handledCommandsConfig) {
+            handledCommandIds.clear()
+            handledCommandsConfig = config
         }
     }
 
@@ -278,12 +299,14 @@ class AppController(
 
     /**
      * Attente longue des changements : applique les valeurs, recharge le layout si la révision
-     * change, exécute les ordres de Jeedom. Après une erreur : « hors ligne », pause,
-     * rechargement du layout, reprise sans curseur. L'écran ne repasse jamais par le chargement.
+     * change, exécute les ordres de Jeedom. Après une erreur : « hors ligne », pause (de plus en
+     * plus longue tant que Jeedom reste injoignable), rechargement du layout, reprise sans curseur.
+     * L'écran ne repasse jamais par le chargement.
      */
     private suspend fun runChanges(target: JeedomDriver, reloadFirst: Boolean) {
         var since: String? = null
         var reload = reloadFirst
+        var failures = 0
         while (true) {
             try {
                 if (reload) {
@@ -301,17 +324,33 @@ class AppController(
                 val result = target.changes(since)
                 currentCoroutineContext().ensureActive()
                 since = result.since
-                update { it.copy(offline = false).withChanges(result.changes) }
+                failures = 0
+                update { it.copy(offline = false) }
+                applyChanges(result.changes)
                 val revision = result.revision
-                if (revision != null && revision != state.value.revision) {
-                    applyLayout(target.layout())
+                // Les ordres ne sont livrés qu'une fois : un layout impossible à recharger ne doit
+                // pas les perdre. Ils passent, puis l'erreur relance la boucle.
+                val layoutError = if (revision != null && revision != state.value.revision) {
+                    try {
+                        applyLayout(target.layout())
+                        null
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        e
+                    }
+                } else {
+                    null
                 }
                 // Démarrage ou reconnexion : Jeedom ne connaît peut-être pas encore notre état.
                 if (restarted) resendState()
                 result.commands.forEach { applyCommand(it) }
+                if (layoutError != null) throw layoutError
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Boucle annulée pendant l'appel (réveil, nouvelle configuration) : pas de faux « hors ligne ».
+                currentCoroutineContext().ensureActive()
                 if (e is AuthenticationException && state.value.uiVisible) {
                     // Clé régénérée ou équipement désactivé dans Jeedom : il faut ressaisir la clé.
                     changesJob = null
@@ -320,16 +359,50 @@ class AppController(
                     return
                 }
                 update { it.copy(offline = true) }
-                delay(RETRY_DELAY_MS)
+                delay(retryDelayMs(failures++))
                 reload = true
                 since = null
             }
         }
     }
 
-    private suspend fun applyLayout(layout: Layout) {
+    /** Valeurs reçues de Jeedom (`changes`, réponse d'`exec`) : elles deviennent les plus récentes. */
+    private fun applyChanges(changes: List<TileChange>) {
+        if (changes.isEmpty()) return
+        changes.forEach { stamp(it.tile) }
+        update { it.withChanges(changes) }
+    }
+
+    /** Nouvel horodatage de la valeur de [tileId]. */
+    private fun stamp(tileId: String): Long {
+        val now = ++valueClock
+        tileStamps[tileId] = now
+        return now
+    }
+
+    /** Horodatage de la valeur actuelle de [tileId]. */
+    private fun stampOf(tileId: String): Long = tileStamps[tileId] ?: layoutStamp
+
+    private suspend fun applyLayout(layout: Layout, extra: (AppState) -> AppState = { it }) {
         currentCoroutineContext().ensureActive()
-        update { it.withLayout(layout) }
+        // Valeurs fraîches pour toutes les tuiles : une réponse d'`exec` en vol est périmée.
+        tileStamps.clear()
+        layoutStamp = ++valueClock
+        update { extra(it).withLayout(layout) }
+    }
+
+    /** Recharge le layout hors de la boucle (tuile inconnue de Jeedom : la configuration a changé). */
+    private fun reloadLayoutSoon() {
+        val target = driver ?: return
+        scope.launch {
+            try {
+                applyLayout(target.layout())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // La boucle des changements finira par le recharger.
+            }
+        }
     }
 
     // --- Ordres de Jeedom --------------------------------------------------------------------
@@ -531,7 +604,7 @@ class AppController(
     private fun openPanel(index: Int, command: TvCommand.Show) {
         cancelAutoReturn()
         val current = state.value
-        if (current.overlay !is Overlay.Panel) panelReturn = PanelReturn(current.pageIndex, current.focusedIndex)
+        if (current.overlay !is Overlay.Panel) panelReturn = PanelReturn(current.currentPage?.id, current.focusedIndex)
         update {
             it.copy(
                 pageIndex = index,
@@ -564,7 +637,9 @@ class AppController(
         update { s ->
             val closed = if (s.overlay is Overlay.Panel) s.copy(adjust = null, choice = null, confirm = null) else s
             val restored = if (restoreSelection && back != null && s.overlay is Overlay.Panel) {
-                val index = back.pageIndex.coerceIn(0, (s.pages.size - 1).coerceAtLeast(0))
+                // Par l'id : un nouveau layout a pu déplacer ou retirer la page entre-temps.
+                val index = s.pages.indexOfFirst { it.id == back.pageId }.takeIf { it >= 0 }
+                    ?: s.pageIndex.coerceIn(0, (s.pages.size - 1).coerceAtLeast(0))
                 val count = s.pages.getOrNull(index)?.tiles?.size ?: 0
                 closed.copy(pageIndex = index, focusedIndex = back.focusedIndex.coerceIn(0, (count - 1).coerceAtLeast(0)))
             } else {
@@ -1033,24 +1108,15 @@ class AppController(
 
     private fun execute(tile: Tile, action: TileAction, value: Double?, choice: String? = null) {
         val target = driver ?: return
-        if (action == TileAction.Toggle) {
-            val optimistic = if (state.value.findTile(tile.id)?.isOn == true) "0" else "1"
-            sendOptimistic(target, tile, action, optimistic, choice = null)
-            return
-        }
-        if (choice != null) {
-            sendOptimistic(target, tile, action, choice, choice)
-            return
-        }
-        if (action == TileAction.Run || action == TileAction.Press) flash(tile.id)
-        scope.launch {
-            try {
-                val newValue = target.exec(tile.id, action, value)
-                if (newValue != null) update { it.withChanges(listOf(TileChange(tile.id, newValue))) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                showNotice(errorText(e))
+        when {
+            action == TileAction.Toggle -> {
+                val optimistic = if (state.value.findTile(tile.id)?.isOn == true) "0" else "1"
+                sendOptimistic(target, tile, action, optimistic, choice = null)
+            }
+            choice != null -> sendOptimistic(target, tile, action, choice, choice)
+            else -> {
+                if (action == TileAction.Run || action == TileAction.Press) flash(tile.id)
+                send(target, tile, action, value, choice = null, sentStamp = stampOf(tile.id), rollback = null)
             }
         }
     }
@@ -1062,23 +1128,36 @@ class AppController(
      */
     private fun sendOptimistic(target: JeedomDriver, tile: Tile, action: TileAction, optimistic: String, choice: String?) {
         val old = state.value.findTile(tile.id)?.value
+        val sentStamp = stamp(tile.id)
         update { it.withChanges(listOf(TileChange(tile.id, optimistic))) }
+        send(target, tile, action, value = null, choice = choice, sentStamp = sentStamp, rollback = TileChange(tile.id, old))
+    }
+
+    /**
+     * Envoie l'ordre. La valeur de la réponse, comme le retour en arrière [rollback] après une
+     * erreur, ne s'applique que si la tuile n'a pas reçu de valeur plus récente depuis l'envoi
+     * ([sentStamp]) : un `changes` ou un second appui arrivé entre-temps a raison.
+     */
+    private fun send(
+        target: JeedomDriver,
+        tile: Tile,
+        action: TileAction,
+        value: Double?,
+        choice: String?,
+        sentStamp: Long,
+        rollback: TileChange?,
+    ) {
         scope.launch {
             try {
-                val newValue = target.exec(tile.id, action, null, choice)
-                if (newValue != null) update { it.withChanges(listOf(TileChange(tile.id, newValue))) }
+                val newValue = target.exec(tile.id, action, value, choice)
+                if (newValue != null && stampOf(tile.id) == sentStamp) applyChanges(listOf(TileChange(tile.id, newValue)))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Retour en arrière, sauf si une valeur plus récente est arrivée entre-temps.
-                update {
-                    if (it.findTile(tile.id)?.value == optimistic) {
-                        it.withChanges(listOf(TileChange(tile.id, old)))
-                    } else {
-                        it
-                    }
-                }
+                if (rollback != null && stampOf(tile.id) == sentStamp) applyChanges(listOf(rollback))
                 showNotice(errorText(e))
+                // Tuile inconnue : les pages ont changé dans Jeedom sans qu'on le sache encore.
+                if ((e as? JeedomException)?.httpCode == 404) reloadLayoutSoon()
             }
         }
     }
@@ -1123,7 +1202,6 @@ class AppController(
 
     private companion object {
         const val GENERIC_ERROR = "Connexion à Jeedom impossible"
-        const val RETRY_DELAY_MS = 3_000L
         const val NOTICE_DURATION_MS = 4_000L
         const val FLASH_DURATION_MS = 600L
         const val BANNER_DURATION_MS = 8_000L
@@ -1142,7 +1220,7 @@ class AppController(
         const val PANEL_IDLE_MS = 60_000L
     }
 
-    private data class PanelReturn(val pageIndex: Int, val focusedIndex: Int)
+    private data class PanelReturn(val pageId: String?, val focusedIndex: Int)
 
     /** [background] : l'application était en arrière-plan avant l'affichage temporaire. */
     private data class ReturnTarget(
@@ -1154,6 +1232,10 @@ class AppController(
 }
 
 // --- Fonctions pures sur l'état (testables sans contrôleur) -------------------------------------
+
+/** Pause avant le nouvel essai n° [failures] + 1 : 3 s, puis le double à chaque échec, 30 s au plus. */
+internal fun retryDelayMs(failures: Int): Long =
+    (3_000L shl failures.coerceIn(0, 4)).coerceAtMost(30_000L)
 
 /** Pas du réglage : celui du plugin, sinon un dixième de la plage. */
 internal val Tile.effectiveStep: Double
@@ -1203,14 +1285,21 @@ internal fun AppState.withChanges(changes: List<TileChange>): AppState {
 }
 
 /**
- * Nouveau layout : la page affichée est retrouvée par son id, la sélection est gardée dans
- * les bornes, et un réglage ou une confirmation sur une tuile disparue est abandonné.
+ * Nouveau layout : la page affichée est retrouvée par son id, la sélection suit la tuile
+ * sélectionnée (par son id) si elle est encore sur la page, et un réglage ou une confirmation
+ * sur une tuile disparue est abandonné. Page disparue : page voisine, sélection sur la première tuile.
  */
 internal fun AppState.withLayout(layout: Layout): AppState {
     val currentPageId = currentPage?.id
-    val newPageIndex = layout.pages.indexOfFirst { it.id == currentPageId }.takeIf { it >= 0 }
-        ?: pageIndex.coerceIn(0, (layout.pages.size - 1).coerceAtLeast(0))
-    val tileCount = layout.pages.getOrNull(newPageIndex)?.tiles?.size ?: 0
+    val samePage = layout.pages.indexOfFirst { it.id == currentPageId }.takeIf { it >= 0 }
+    val newPageIndex = samePage ?: pageIndex.coerceIn(0, (layout.pages.size - 1).coerceAtLeast(0))
+    val newTiles = layout.pages.getOrNull(newPageIndex)?.tiles.orEmpty()
+    val focusedId = focusedTile?.id
+    val newFocus = when {
+        samePage == null -> 0
+        else -> newTiles.indexOfFirst { it.id == focusedId }.takeIf { it >= 0 }
+            ?: focusedIndex.coerceIn(0, (newTiles.size - 1).coerceAtLeast(0))
+    }
     val ids = layout.pages.flatMap { page -> page.tiles.map { it.id } }.toSet()
     return copy(
         revision = layout.revision,
@@ -1218,7 +1307,7 @@ internal fun AppState.withLayout(layout: Layout): AppState {
         colorKeys = layout.keys,
         header = layout.header,
         pageIndex = newPageIndex,
-        focusedIndex = focusedIndex.coerceIn(0, (tileCount - 1).coerceAtLeast(0)),
+        focusedIndex = newFocus,
         adjust = adjust?.takeIf { it.tileId in ids },
         // Mode de choix gardé si la tuile a encore des choix ; sélection ramenée dans la liste.
         choice = choice?.let { c ->
