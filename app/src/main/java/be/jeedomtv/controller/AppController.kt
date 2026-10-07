@@ -4,6 +4,7 @@ import be.jeedomtv.model.Adjust
 import be.jeedomtv.model.AppModel
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Banner
+import be.jeedomtv.model.ChoiceMode
 import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
@@ -206,7 +207,7 @@ class AppController(
      */
     private suspend fun connectNow(config: JeedomConfig, userInitiated: Boolean) {
         update {
-            it.copy(screen = Screen.Loading, config = config, error = null, adjust = null, confirm = null)
+            it.copy(screen = Screen.Loading, config = config, error = null, adjust = null, choice = null, confirm = null)
         }
         val newDriver = driverFactory.create(config)
         try {
@@ -253,7 +254,7 @@ class AppController(
     }
 
     private fun showSetupError(message: String) {
-        update { it.copy(screen = Screen.Setup, error = message, adjust = null, confirm = null) }
+        update { it.copy(screen = Screen.Setup, error = message, adjust = null, choice = null, confirm = null) }
     }
 
     // --- Changements en direct ---------------------------------------------------------------
@@ -386,6 +387,7 @@ class AppController(
                 pageIndex = index,
                 focusedIndex = 0,
                 adjust = null,
+                choice = null,
                 confirm = null,
                 error = null,
                 exitRequested = false,
@@ -431,13 +433,15 @@ class AppController(
     private fun notify(command: TvCommand.Notify) {
         val current = state.value
         val banner = Banner(command.title, command.message, image = command.image)
+        // Durée demandée par Jeedom (`duration`), sinon celle de la TV.
+        val durationMs = command.durationSec?.let { it * 1000L } ?: BANNER_DURATION_MS
         if (!current.uiVisible && !current.foregroundRequested) {
             when {
                 // Le panneau affiche le bandeau en son sein.
                 current.overlay is Overlay.Panel -> Unit
                 // Bandeau en superposition, sans focus : la vidéo ne remarque rien.
                 overlayPermission.granted() -> {
-                    showNoticeOverlay(banner)
+                    showNoticeOverlay(banner, durationMs)
                     loadBannerImage(banner)
                     return
                 }
@@ -448,7 +452,7 @@ class AppController(
         loadBannerImage(banner)
         bannerTimer?.cancel()
         bannerTimer = scope.launch {
-            delay(BANNER_DURATION_MS)
+            delay(durationMs)
             bannerImageJob?.cancel()
             update { it.copy(banner = null) }
         }
@@ -509,18 +513,18 @@ class AppController(
         if (state.value.overlay != Overlay.None) dismissOverlay(restoreSelection = true)
         // Déjà en arrière-plan : rien à quitter.
         update {
-            it.copy(adjust = null, confirm = null, exitRequested = it.uiVisible, foregroundRequested = false)
+            it.copy(adjust = null, choice = null, confirm = null, exitRequested = it.uiVisible, foregroundRequested = false)
         }
     }
 
     // --- Superposition ------------------------------------------------------------------------
 
     /** Bandeau par-dessus la vidéo ; un nouvel ordre remplace la superposition courante. */
-    private fun showNoticeOverlay(banner: Banner) {
+    private fun showNoticeOverlay(banner: Banner, durationMs: Long) {
         if (state.value.overlay is Overlay.Panel) dismissOverlay(restoreSelection = true)
         bannerImageJob?.cancel()
         update { it.copy(overlay = Overlay.Notice(banner)) }
-        restartOverlayTimer(BANNER_DURATION_MS)
+        restartOverlayTimer(durationMs)
     }
 
     /** Panneau par-dessus la vidéo, sur la page [index] ; il remplace la superposition courante. */
@@ -533,6 +537,7 @@ class AppController(
                 pageIndex = index,
                 focusedIndex = 0,
                 adjust = null,
+                choice = null,
                 confirm = null,
                 overlay = Overlay.Panel(command.page, command.durationSec),
             )
@@ -557,7 +562,7 @@ class AppController(
         val back = panelReturn
         panelReturn = null
         update { s ->
-            val closed = if (s.overlay is Overlay.Panel) s.copy(adjust = null, confirm = null) else s
+            val closed = if (s.overlay is Overlay.Panel) s.copy(adjust = null, choice = null, confirm = null) else s
             val restored = if (restoreSelection && back != null && s.overlay is Overlay.Panel) {
                 val index = back.pageIndex.coerceIn(0, (s.pages.size - 1).coerceAtLeast(0))
                 val count = s.pages.getOrNull(index)?.tiles?.size ?: 0
@@ -582,6 +587,7 @@ class AppController(
         }
         if (command is RemoteCommand.Color) return onPanelColor(command.key, current)
         current.confirm?.let { return onConfirmCommand(command, it) }
+        onChoiceCommandIfAny(command, current)?.let { return it }
         val adjust = current.adjust
         val adjustTile = current.adjustTile
         if (adjust != null && adjustTile != null) return onAdjustCommand(command, adjust, adjustTile)
@@ -602,7 +608,7 @@ class AppController(
         if (index == current.pageIndex) {
             dismissOverlay(restoreSelection = true)
         } else {
-            update { it.copy(pageIndex = index, focusedIndex = 0, adjust = null, confirm = null) }
+            update { it.copy(pageIndex = index, focusedIndex = 0, adjust = null, choice = null, confirm = null) }
         }
         return true
     }
@@ -838,14 +844,15 @@ class AppController(
         // Application affichée : la page associée s'affiche directement, réglage ou confirmation abandonnés.
         if (command is RemoteCommand.Color) {
             val target = current.pageIndexFor(command.key) ?: return false
-            update { it.copy(pageIndex = target, focusedIndex = 0, adjust = null, confirm = null) }
+            update { it.copy(pageIndex = target, focusedIndex = 0, adjust = null, choice = null, confirm = null) }
             return true
         }
         current.confirm?.let { return onConfirmCommand(command, it) }
+        onChoiceCommandIfAny(command, current)?.let { return it }
         val adjustTile = current.adjustTile
         val adjust = current.adjust
         if (adjust != null && adjustTile != null) return onAdjustCommand(command, adjust, adjustTile)
-        if (adjust != null) update { it.copy(adjust = null) } // Tuile disparue entre-temps.
+        if (adjust != null) update { it.copy(adjust = null, choice = null) } // Tuile disparue entre-temps.
         return onGridCommand(command, current)
     }
 
@@ -899,7 +906,7 @@ class AppController(
 
     /** Configuration : la boucle continue (les ordres de Jeedom restent reçus). */
     private fun showSetup() {
-        update { it.copy(screen = Screen.Setup, error = null, adjust = null, confirm = null) }
+        update { it.copy(screen = Screen.Setup, error = null, adjust = null, choice = null, confirm = null) }
     }
 
     /** OK (ou chiffre) sur une tuile, selon son type. */
@@ -908,10 +915,46 @@ class AppController(
             TileType.Switch -> request(tile, TileAction.Toggle)
             TileType.Scene -> request(tile, TileAction.Run)
             TileType.Button -> request(tile, TileAction.Press)
+            TileType.Select -> enterChoice(tile)
             TileType.Info -> Unit
             TileType.Shutter -> enterAdjust(tile, positional = tile.hasRange)
             TileType.Slider -> if (tile.hasRange) enterAdjust(tile, positional = true)
         }
+    }
+
+    // --- Mode de choix (tuile select) --------------------------------------------------------
+
+    /** La sélection part du choix actuel (le premier si la valeur n'est pas dans la liste). */
+    private fun enterChoice(tile: Tile) {
+        if (tile.choices.isEmpty()) return
+        update { it.copy(choice = ChoiceMode(tile.id, tile.choiceIndex.coerceAtLeast(0))) }
+    }
+
+    /** Commande du mode de choix s'il est actif ; null sinon. Tuile disparue : le mode est abandonné. */
+    private fun onChoiceCommandIfAny(command: RemoteCommand, current: AppState): Boolean? {
+        val mode = current.choice ?: return null
+        val tile = current.choiceTile?.takeIf { it.choices.isNotEmpty() }
+        if (tile == null) {
+            update { it.copy(choice = null) }
+            return null
+        }
+        val last = tile.choices.lastIndex
+        when (command) {
+            RemoteCommand.Left, RemoteCommand.Up -> selectChoice((mode.selected - 1).coerceAtLeast(0))
+            RemoteCommand.Right, RemoteCommand.Down -> selectChoice((mode.selected + 1).coerceAtMost(last))
+            RemoteCommand.Ok -> {
+                update { it.copy(choice = null) }
+                tile.choices.getOrNull(mode.selected)?.let { request(tile, TileAction.Set, choice = it.value) }
+            }
+            RemoteCommand.Back -> update { it.copy(choice = null) }
+            RemoteCommand.Menu -> showSetup()
+            else -> Unit // Chiffres, CH+/CH- : le mode de choix garde la main.
+        }
+        return true
+    }
+
+    private fun selectChoice(index: Int) {
+        update { s -> s.choice?.let { s.copy(choice = it.copy(selected = index)) } ?: s }
     }
 
     // --- Mode réglage ------------------------------------------------------------------------
@@ -959,7 +1002,7 @@ class AppController(
     }
 
     private fun leaveAdjust() {
-        update { it.copy(adjust = null) }
+        update { it.copy(adjust = null, choice = null) }
     }
 
     // --- Confirmation et ordres --------------------------------------------------------------
@@ -968,7 +1011,7 @@ class AppController(
         when (command) {
             RemoteCommand.Ok -> {
                 update { it.copy(confirm = null) }
-                state.value.findTile(pending.tileId)?.let { execute(it, pending.action, pending.value) }
+                state.value.findTile(pending.tileId)?.let { execute(it, pending.action, pending.value, pending.choice) }
             }
             RemoteCommand.Back -> update { it.copy(confirm = null) }
             RemoteCommand.Menu -> showSetup()
@@ -978,20 +1021,25 @@ class AppController(
     }
 
     /** Ordre demandé par l'utilisateur : confirmation d'abord si la tuile l'exige. */
-    private fun request(tile: Tile, action: TileAction, value: Double? = null) {
+    private fun request(tile: Tile, action: TileAction, value: Double? = null, choice: String? = null) {
         if (tile.confirm) {
             update {
-                it.copy(confirm = PendingAction(tile.id, action, value, describe(tile, action, value)))
+                it.copy(confirm = PendingAction(tile.id, action, value, describe(tile, action, value, choice), choice))
             }
         } else {
-            execute(tile, action, value)
+            execute(tile, action, value, choice)
         }
     }
 
-    private fun execute(tile: Tile, action: TileAction, value: Double?) {
+    private fun execute(tile: Tile, action: TileAction, value: Double?, choice: String? = null) {
         val target = driver ?: return
         if (action == TileAction.Toggle) {
-            toggle(target, tile)
+            val optimistic = if (state.value.findTile(tile.id)?.isOn == true) "0" else "1"
+            sendOptimistic(target, tile, action, optimistic, choice = null)
+            return
+        }
+        if (choice != null) {
+            sendOptimistic(target, tile, action, choice, choice)
             return
         }
         if (action == TileAction.Run || action == TileAction.Press) flash(tile.id)
@@ -1008,16 +1056,16 @@ class AppController(
     }
 
     /**
-     * Bascule avec mise à jour optimiste : la valeur change tout de suite, puis la réponse
-     * (ou `changes`) la corrige. En cas d'erreur, l'ancienne valeur revient.
+     * Ordre avec mise à jour optimiste (bascule d'un interrupteur, choix d'une liste) : la valeur
+     * [optimistic] s'affiche tout de suite, puis la réponse (ou `changes`) la corrige. En cas
+     * d'erreur, l'ancienne valeur revient.
      */
-    private fun toggle(target: JeedomDriver, tile: Tile) {
+    private fun sendOptimistic(target: JeedomDriver, tile: Tile, action: TileAction, optimistic: String, choice: String?) {
         val old = state.value.findTile(tile.id)?.value
-        val optimistic = if (state.value.findTile(tile.id)?.isOn == true) "0" else "1"
         update { it.withChanges(listOf(TileChange(tile.id, optimistic))) }
         scope.launch {
             try {
-                val newValue = target.exec(tile.id, TileAction.Toggle, null)
+                val newValue = target.exec(tile.id, action, null, choice)
                 if (newValue != null) update { it.withChanges(listOf(TileChange(tile.id, newValue))) }
             } catch (e: CancellationException) {
                 throw e
@@ -1056,14 +1104,19 @@ class AppController(
     private fun errorText(e: Exception): String =
         (e as? JeedomException)?.message ?: "Commande impossible"
 
-    private fun describe(tile: Tile, action: TileAction, value: Double?): String = when (action) {
+    private fun describe(tile: Tile, action: TileAction, value: Double?, choice: String?): String = when (action) {
         TileAction.On -> "Allumer « ${tile.name} »"
         TileAction.Off -> "Éteindre « ${tile.name} »"
         TileAction.Toggle -> if (tile.isOn) "Éteindre « ${tile.name} »" else "Allumer « ${tile.name} »"
         TileAction.Up -> "Monter « ${tile.name} »"
         TileAction.Down -> "Descendre « ${tile.name} »"
         TileAction.Stop -> "Arrêter « ${tile.name} »"
-        TileAction.Set -> "Régler « ${tile.name} » sur ${formatValue(value ?: 0.0, tile.unit)}"
+        TileAction.Set -> if (choice != null) {
+            val label = tile.choices.firstOrNull { it.value == choice }?.label ?: choice
+            "Régler « ${tile.name} » sur « $label »"
+        } else {
+            "Régler « ${tile.name} » sur ${formatValue(value ?: 0.0, tile.unit)}"
+        }
         TileAction.Run -> "Lancer « ${tile.name} »"
         TileAction.Press -> "Activer « ${tile.name} »"
     }
@@ -1167,6 +1220,11 @@ internal fun AppState.withLayout(layout: Layout): AppState {
         pageIndex = newPageIndex,
         focusedIndex = focusedIndex.coerceIn(0, (tileCount - 1).coerceAtLeast(0)),
         adjust = adjust?.takeIf { it.tileId in ids },
+        // Mode de choix gardé si la tuile a encore des choix ; sélection ramenée dans la liste.
+        choice = choice?.let { c ->
+            val count = layout.pages.asSequence().flatMap { it.tiles }.firstOrNull { it.id == c.tileId }?.choices?.size ?: 0
+            if (count == 0) null else c.copy(selected = c.selected.coerceIn(0, count - 1))
+        },
         confirm = confirm?.takeIf { it.tileId in ids },
     )
 }

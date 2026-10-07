@@ -16,6 +16,15 @@ data class Adjust(
     val pending: Double?,
 )
 
+/**
+ * Mode de choix d'une tuile `select` : [selected] est l'index du choix en attente, envoyé par OK.
+ * La valeur actuelle de la tuile reste mise en évidence dans la liste.
+ */
+data class ChoiceMode(
+    val tileId: String,
+    val selected: Int,
+)
+
 /** Ordre en attente de confirmation (tuile `confirm: true`). */
 data class PendingAction(
     val tileId: String,
@@ -23,6 +32,8 @@ data class PendingAction(
     val value: Double? = null,
     /** Description lisible de l'ordre, affichée dans la boîte de confirmation. */
     val label: String,
+    /** Valeur texte d'un `set` sur une tuile `select`. */
+    val choice: String? = null,
 )
 
 /** Bandeau d'un ordre `notify` de Jeedom. */
@@ -101,6 +112,8 @@ data class AppState(
     /** Index (dans la page) de la tuile sélectionnée : porté par l'état, pas par le focus Compose. */
     val focusedIndex: Int = 0,
     val adjust: Adjust? = null,
+    /** Mode de choix d'une tuile `select`. */
+    val choice: ChoiceMode? = null,
     val confirm: PendingAction? = null,
     /** Erreur de connexion, affichée sur l'écran de configuration. */
     val error: String? = null,
@@ -130,6 +143,10 @@ data class AppState(
 
     val focusedTile: Tile?
         get() = currentPage?.tiles?.getOrNull(focusedIndex)
+
+    /** Tuile en mode de choix, s'il y en a une. */
+    val choiceTile: Tile?
+        get() = choice?.let { c -> findTile(c.tileId) }
 
     /** Tuile en mode réglage, s'il y en a une. */
     val adjustTile: Tile?

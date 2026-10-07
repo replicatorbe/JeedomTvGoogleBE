@@ -30,7 +30,7 @@ class FakeSettings(var stored: JeedomConfig? = null) : SettingsRepository {
 }
 
 /** Ordre reçu par le pilote factice. */
-data class ExecCall(val tile: String, val action: TileAction, val value: Double? = null)
+data class ExecCall(val tile: String, val action: TileAction, val value: Double? = null, val choice: String? = null)
 
 /**
  * Fabrique et pilote factices réunis : le comportement ([onPing], [onLayout], [onExec], [onState]) et les
@@ -85,8 +85,8 @@ class FakeDriverFactory(
                 return onLayout()
             }
 
-            override suspend fun exec(tile: String, action: TileAction, value: Double?): String? {
-                val call = ExecCall(tile, action, value)
+            override suspend fun exec(tile: String, action: TileAction, value: Double?, choice: String?): String? {
+                val call = ExecCall(tile, action, value, choice)
                 execCalls += call
                 return onExec(call)
             }

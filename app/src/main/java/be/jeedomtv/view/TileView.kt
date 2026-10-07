@@ -180,6 +180,7 @@ fun tileValueText(tile: Tile): String = when (tile.type) {
     }
     TileType.Scene -> "▶ Lancer"
     TileType.Button -> if (tile.value == null) "▶" else valueWithUnit(tile)
+    TileType.Select -> tile.choiceLabel ?: "—"
     TileType.Shutter -> when {
         tile.value == null -> "▲ ▼"
         tile.numericValue != null && tile.numericValue == tile.min -> "Fermé"

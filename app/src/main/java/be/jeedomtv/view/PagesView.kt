@@ -92,11 +92,16 @@ fun PagesView(state: AppState) {
         }
 
         // Voile sur la grille : le panneau de réglage ou la confirmation ressort nettement.
-        if ((state.adjustTile != null && state.adjust != null) || state.confirm != null) {
+        val choiceTile = state.choiceTile
+        val choice = state.choice
+        if ((state.adjustTile != null && state.adjust != null) || state.confirm != null || (choiceTile != null && choice != null)) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)))
         }
         state.adjustTile?.let { tile ->
             state.adjust?.let { adjust -> AdjustPanel(tile, adjust, Modifier.align(Alignment.Center)) }
+        }
+        if (choiceTile != null && choice != null && state.confirm == null) {
+            ChoicePanel(choiceTile, choice, Modifier.align(Alignment.Center))
         }
         state.confirm?.let { ConfirmDialog(it, Modifier.align(Alignment.Center)) }
         state.notice?.let { Notice(it, Modifier.align(Alignment.TopCenter).padding(top = 96.dp)) }
@@ -292,13 +297,14 @@ internal fun HelpBanner(text: String) {
     )
 }
 
-/** « Jeedom TV 0.6.0 », affiché sur l'écran de configuration. */
+/** « Jeedom TV 0.7.0 », affiché sur l'écran de configuration. */
 internal val appVersionLabel: String
     get() = "Jeedom TV ${BuildConfig.VERSION_NAME}"
 
 /** Rappel des touches du contexte courant. */
 fun helpText(state: AppState): String {
     if (state.confirm != null) return "OK : confirmer · Retour : annuler"
+    if (state.choice != null && state.choiceTile != null) return "◀ ▶ : choisir · OK : envoyer · Retour : annuler"
     val tile = state.adjustTile
     val adjust = state.adjust
     if (tile != null && adjust != null) {
@@ -313,6 +319,7 @@ fun helpText(state: AppState): String {
         TileType.Switch -> "OK : allumer / éteindre"
         TileType.Scene -> "OK : lancer"
         TileType.Button -> "OK : activer"
+        TileType.Select -> "OK : changer"
         TileType.Shutter, TileType.Slider -> "OK : régler"
         TileType.Info, null -> null
     }

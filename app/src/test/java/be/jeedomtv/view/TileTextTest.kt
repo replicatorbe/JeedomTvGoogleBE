@@ -1,5 +1,6 @@
 package be.jeedomtv.view
 
+import be.jeedomtv.model.Choice
 import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileType
@@ -45,6 +46,14 @@ class TileTextTest {
     fun `largeurs des puces - place insuffisante pour toutes, parts egales`() {
         assertEquals(listOf(50, 50, 50), shareWidths(listOf(100, 200, 300), 150))
         assertEquals(listOf(0, 0), shareWidths(listOf(10, 20), 0))
+    }
+
+    @Test
+    fun `liste de choix - libelle du choix courant, sinon la valeur`() {
+        val choices = listOf(Choice("auto", "Auto"), Choice("cold", "Froid"))
+        assertEquals("Froid", tileValueText(Tile("s", TileType.Select, "Clim", value = "cold", choices = choices)))
+        assertEquals("dry", tileValueText(Tile("s", TileType.Select, "Clim", value = "dry", choices = choices)))
+        assertEquals("—", tileValueText(Tile("s", TileType.Select, "Clim", value = null, choices = choices)))
     }
 
     @Test

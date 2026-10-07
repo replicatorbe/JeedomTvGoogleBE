@@ -19,8 +19,11 @@ interface JeedomDriver {
     /** Pages et tuiles de la TV, avec les valeurs actuelles. */
     suspend fun layout(): Layout
 
-    /** Exécute [action] sur la tuile [tile] ; retourne la valeur lue juste après (peut être null). */
-    suspend fun exec(tile: String, action: TileAction, value: Double? = null): String?
+    /**
+     * Exécute [action] sur la tuile [tile] ; retourne la valeur lue juste après (peut être null).
+     * [value] : valeur numérique (curseur, volet) ; [choice] : valeur texte d'un choix (`select`).
+     */
+    suspend fun exec(tile: String, action: TileAction, value: Double? = null, choice: String? = null): String?
 
     /**
      * Attente longue des changements de valeurs depuis le curseur [since]

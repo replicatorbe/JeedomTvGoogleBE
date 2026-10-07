@@ -1,6 +1,7 @@
 package be.jeedomtv.model.driver
 
 import be.jeedomtv.model.Changes
+import be.jeedomtv.model.Choice
 import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
@@ -68,11 +69,15 @@ class JeedomHttpDriver internal constructor(
 
     override suspend fun layout(): Layout = decode<LayoutDto>(get("layout")).toLayout()
 
-    override suspend fun exec(tile: String, action: TileAction, value: Double?): String? {
+    override suspend fun exec(tile: String, action: TileAction, value: Double?, choice: String?): String? {
         val body = buildJsonObject {
             put("tile", tile)
             put("action", action.apiName)
-            if (value != null) put("value", numberOf(value))
+            // Un choix part en chaîne, telle que le plugin l'a donnée (`choices[].value`).
+            when {
+                choice != null -> put("value", choice)
+                value != null -> put("value", numberOf(value))
+            }
         }
         return decode<ExecDto>(post("exec", body)).value.asText()
     }
@@ -340,6 +345,7 @@ private data class TileDto(
     val min: Double? = null,
     val max: Double? = null,
     val step: Double? = null,
+    val choices: List<ChoiceDto>? = null,
 ) {
     /** Une tuile sans id est inutilisable (aucun ordre possible) : elle est ignorée. */
     fun toTile(): Tile? {
@@ -355,7 +361,17 @@ private data class TileDto(
             min = min,
             max = max,
             step = step,
+            choices = choices.orEmpty().mapNotNull { it.toChoice() },
         )
+    }
+}
+
+@Serializable
+private data class ChoiceDto(val value: JsonElement? = null, val label: String? = null) {
+    /** Sans valeur, le choix ne peut pas être envoyé : ignoré. Sans libellé, la valeur s'affiche. */
+    fun toChoice(): Choice? {
+        val v = value.asText()?.takeIf { it.isNotEmpty() } ?: return null
+        return Choice(v, label?.takeIf { it.isNotBlank() } ?: v)
     }
 }
 
@@ -391,7 +407,11 @@ private data class CommandDto(
         "show" -> page?.takeIf { it.isNotBlank() }?.let {
             TvCommand.Show(id, it, (duration ?: 0.0).toInt().coerceAtLeast(0))
         }
-        "notify" -> TvCommand.Notify(id, title.orEmpty(), message.orEmpty(), imageId)
+        "notify" -> TvCommand.Notify(
+            id, title.orEmpty(), message.orEmpty(), imageId,
+            // Contrat : 3 à 120 s ; une valeur hors bornes y est ramenée.
+            durationSec = duration?.toInt()?.coerceIn(MIN_NOTIFY_S, MAX_NOTIFY_S),
+        )
         "exit" -> TvCommand.Exit(id)
         // Question sans jeton ou sans réponse possible : inutilisable, ignorée.
         "ask" -> {
@@ -411,6 +431,9 @@ private data class CommandDto(
         else -> null
     }
 }
+
+private const val MIN_NOTIFY_S = 3
+private const val MAX_NOTIFY_S = 120
 
 @Serializable
 private data class ChangeDto(val tile: String? = null, val value: JsonElement? = null)

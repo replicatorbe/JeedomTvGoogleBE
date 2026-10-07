@@ -9,7 +9,10 @@ enum class TileType(val apiName: String) {
     Scene("scene"),
 
     /** Bouton : exécute une commande action choisie dans le plugin (CameraOnTv, portail…). */
-    Button("button");
+    Button("button"),
+
+    /** Liste de choix : mode de clim, source de chauffe… (`choices`, action `set` avec une valeur texte). */
+    Select("select");
 
     companion object {
         fun fromApi(name: String?): TileType = entries.firstOrNull { it.apiName == name } ?: Info
@@ -65,6 +68,8 @@ data class Tile(
     val min: Double? = null,
     val max: Double? = null,
     val step: Double? = null,
+    /** Choix d'une tuile `select`, dans l'ordre du plugin ; vide pour les autres types. */
+    val choices: List<Choice> = emptyList(),
 ) {
     /** Bornes connues : réglage d'une position (volet) ou d'une consigne (curseur). */
     val hasRange: Boolean
@@ -74,10 +79,21 @@ data class Tile(
     val isOn: Boolean
         get() = (value?.trim()?.replace(',', '.')?.toDoubleOrNull() ?: 0.0) > 0.0
 
+    /** Index du choix correspondant à la valeur actuelle, ou -1. */
+    val choiceIndex: Int
+        get() = choices.indexOfFirst { it.value == value }
+
+    /** Libellé du choix courant ; à défaut la valeur brute, null sans valeur. */
+    val choiceLabel: String?
+        get() = choices.getOrNull(choiceIndex)?.label ?: value
+
     /** Valeur numérique, si elle en est une. */
     val numericValue: Double?
         get() = value?.trim()?.replace(',', '.')?.toDoubleOrNull()
 }
+
+/** Un choix d'une tuile `select` : [value] est envoyée au plugin, [label] est affiché. */
+data class Choice(val value: String, val label: String)
 
 /** Nouvelle valeur d'une tuile, reçue par `changes`. */
 data class TileChange(val tile: String, val value: String?)
@@ -106,6 +122,8 @@ sealed interface TvCommand {
         val message: String,
         /** Identifiant d'une image jointe ; null sans image. */
         val image: String? = null,
+        /** Durée du bandeau en secondes (3 à 120) ; null : durée par défaut de la TV. */
+        val durationSec: Int? = null,
     ) : TvCommand
 
     /** Passe l'application en arrière-plan. */

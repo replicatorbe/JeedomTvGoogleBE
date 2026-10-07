@@ -92,6 +92,8 @@ fun OverlayPanelView(state: AppState) {
             when {
                 confirm != null -> ConfirmDialog(confirm)
                 adjust != null && adjustTile != null -> AdjustPanel(adjustTile, adjust, compact = true)
+                state.choice != null && state.choiceTile != null ->
+                    ChoicePanel(state.choiceTile!!, state.choice!!, compact = true)
                 page == null || page.tiles.isEmpty() ->
                     Text("Aucune tuile sur cette page", color = JeedomTvColors.TextMuted, fontSize = 22.sp)
                 else -> TileGrid(
@@ -109,11 +111,12 @@ fun OverlayPanelView(state: AppState) {
 
 /** Rappel des touches du panneau : Retour ferme, Menu ouvre l'application complète. */
 fun panelHelpText(state: AppState): String {
-    if (state.confirm != null || state.adjust != null) return helpText(state)
+    if (state.confirm != null || state.adjust != null || state.choice != null) return helpText(state)
     val action = when (state.focusedTile?.type) {
         TileType.Switch -> "OK : allumer / éteindre"
         TileType.Scene -> "OK : lancer"
         TileType.Button -> "OK : activer"
+        TileType.Select -> "OK : changer"
         TileType.Shutter, TileType.Slider -> "OK : régler"
         TileType.Info, null -> null
     }

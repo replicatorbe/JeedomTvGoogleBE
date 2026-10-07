@@ -1,5 +1,6 @@
 package be.jeedomtv.model.driver
 
+import be.jeedomtv.model.Choice
 import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
@@ -576,6 +577,75 @@ class JeedomHttpDriverTest {
         assertEquals(TileIcon.Rain, TileIcon.fromApi("rain"))
         assertEquals(TileIcon.Trash, TileIcon.fromApi("trash"))
         assertEquals(TileIcon.Power, TileIcon.fromApi("power"))
+    }
+
+    @Test
+    fun `layout - tuile select de l'exemple du contrat`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"revision": "r", "pages": [{"id": "p", "name": "P", "tiles": [
+                  {"id": "t50", "type": "select", "name": "Salle à manger · Mode clim", "icon": "thermostat",
+                   "confirm": false, "value": "cold", "unit": "",
+                   "choices": [{"value": "auto", "label": "Auto"}, {"value": "cold", "label": "Froid"},
+                               {"value": "heat", "label": "Chauffage"}]}
+                ]}]}
+                """.trimIndent()
+            )
+        )
+        val tile = driver().layout().pages.single().tiles.single()
+        assertEquals(TileType.Select, tile.type)
+        assertEquals("cold", tile.value)
+        assertEquals(listOf(Choice("auto", "Auto"), Choice("cold", "Froid"), Choice("heat", "Chauffage")), tile.choices)
+        assertEquals("Froid", tile.choiceLabel)
+    }
+
+    @Test
+    fun `layout - choix sans valeur ignores, sans libelle la valeur, valeur numerique en texte`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"revision": "r", "pages": [{"id": "p", "name": "P", "tiles": [
+                  {"id": "s", "type": "select", "name": "Ventilation", "value": "9",
+                   "choices": [{"label": "Sans valeur"}, {"value": 1, "label": "Lente"}, {"value": "2"}, {"value": "", "label": "Vide"}]},
+                  {"id": "i", "type": "info", "name": "Info"}
+                ]}]}
+                """.trimIndent()
+            )
+        )
+        val tiles = driver().layout().pages.single().tiles
+        assertEquals(listOf(Choice("1", "Lente"), Choice("2", "2")), tiles[0].choices)
+        assertEquals("valeur absente des choix : affichée telle quelle", "9", tiles[0].choiceLabel)
+        assertTrue(tiles[1].choices.isEmpty())
+    }
+
+    @Test
+    fun `exec set d'un select - valeur en chaine`() = runBlocking {
+        server.enqueue(json("""{"ok": true, "value": "heat"}"""))
+        assertEquals("heat", driver().exec("t50", TileAction.Set, choice = "heat"))
+        assertEquals("""{"tile":"t50","action":"set","value":"heat"}""", server.takeRequest().body.readUtf8())
+        server.enqueue(json("""{"ok": true, "value": "1"}"""))
+        driver().exec("s", TileAction.Set, choice = "1")
+        assertEquals("""{"tile":"s","action":"set","value":"1"}""", server.takeRequest().body.readUtf8())
+    }
+
+    @Test
+    fun `notify - duration lue, ramenee entre 3 et 120 s, absente null`() = runBlocking {
+        server.enqueue(
+            json(
+                """
+                {"since": 1, "revision": "r", "changes": [], "commands": [
+                  {"id": 1, "type": "notify", "title": "", "message": "a", "duration": 30},
+                  {"id": 2, "type": "notify", "title": "", "message": "b"},
+                  {"id": 3, "type": "notify", "title": "", "message": "c", "duration": 1},
+                  {"id": 4, "type": "notify", "title": "", "message": "d", "duration": 600},
+                  {"id": 5, "type": "notify", "title": "", "message": "e", "duration": null}
+                ]}
+                """.trimIndent()
+            )
+        )
+        val durations = driver().changes("0").commands.map { (it as TvCommand.Notify).durationSec }
+        assertEquals(listOf(30, null, 3, 120, null), durations)
     }
 
     @Test

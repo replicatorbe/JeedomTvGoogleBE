@@ -13,6 +13,7 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
   - **curseur** : réglage d'une consigne entre un minimum et un maximum ;
   - **info** : affichage d'une valeur avec son unité ;
   - **scénario** : lancement, avec un bref retour visuel ;
+  - **liste de choix** : mode d'une clim, source de chauffe… La tuile affiche le choix en cours ; OK ouvre la liste ;
   - **bouton** : exécute une commande action choisie dans le plugin (par exemple « Afficher caméra » de CameraOnTv), avec un bref retour visuel. Il affiche « ▶ », ou la valeur de son état s'il en a un. Icône caméra disponible.
 - Valeurs en direct : l'application attend les changements de Jeedom (attente longue) tant qu'elle est affichée.
   - La grille se recharge seule quand les pages changent dans Jeedom.
@@ -21,13 +22,13 @@ Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/
 - La TV ne connaît aucun id de commande Jeedom : une clé volée ne pilote que les tuiles de cette TV.
 - Pilotage par Jeedom, même pendant un film (service au premier plan, démarré avec la TV) :
   - **Afficher une page** : pendant un film, en [superposition](#superposition-par-dessus-la-vidéo), sans interrompre la vidéo ; sinon dans l'application, avec retour automatique après une durée. Une touche de la télécommande annule le retour ;
-  - **Message** : bandeau d'environ 8 s, dans l'application ou par-dessus la vidéo ;
+  - **Message** : bandeau d'environ 8 s, dans l'application ou par-dessus la vidéo ; `[durée=<s>]` dans le message en fixe la durée (3 à 120 s) ;
   - **Quitter** : la superposition se ferme, ou l'application passe en arrière-plan.
   - **Question** (bloc « Demander » d'un scénario) : on répond à la télécommande, le scénario continue selon la réponse. Voir [Questions de Jeedom](#questions-de-jeedom).
 - Jeedom connaît l'état de la TV : application visible, écran allumé, page affichée, et version de l'application (info `Version app`).
 - **Bandeau d'infos** : jusqu'à 6 infos de la maison (température extérieure, poubelles, production solaire…) choisies dans Jeedom, sous les onglets et dans le panneau en superposition. Voir [Bandeau d'infos](#bandeau-dinfos).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
-- La version (« Jeedom TV 0.6.0 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.7.0 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|
@@ -46,6 +47,7 @@ OK selon la tuile :
 | Interrupteur | Bascule. L'affichage change tout de suite, puis Jeedom le corrige si besoin. En cas d'erreur, l'ancienne valeur revient et un message s'affiche 4 s. |
 | Scénario | Lance le scénario. |
 | Bouton | Exécute sa commande Jeedom. |
+| Liste de choix | Ouvre le mode de choix : les libellés, la valeur actuelle marquée d'un ✓. ◀ ▶ (ou ▲ ▼) parcourent, OK envoie le choix (affiché tout de suite, puis corrigé par Jeedom si besoin), Retour annule. Fonctionne aussi dans le panneau en superposition. |
 | Curseur, volet | Entre en mode réglage. La valeur en attente part de la valeur actuelle. |
 | Info | Rien. |
 
@@ -185,7 +187,7 @@ Le plugin crée sur l'équipement de la TV les commandes décrites dans [docs/ap
 |---|---|
 | `Afficher <nom de page>` | Affiche la page, avec la durée par défaut de l'équipement (30 s) |
 | `Afficher page` | Titre = page (id ou nom), message = durée en s (`0` = sans retour) |
-| `Message` | Bandeau sur la TV (titre facultatif, message) |
+| `Message` | Bandeau sur la TV (titre facultatif, message ; `[durée=20]` : 20 s au lieu d'environ 8) |
 | `Quitter` | Retour au programme TV |
 | `Visible`, `Écran allumé`, `Page affichée`, `En ligne` | État de la TV, utilisable dans les conditions |
 
