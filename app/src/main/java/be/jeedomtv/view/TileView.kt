@@ -95,6 +95,8 @@ fun TileView(
             }
             .then(if (focused) Modifier.shadow(12.dp, TileShape, ambientColor = Color.Black, spotColor = Color.Black) else Modifier)
             .clip(TileShape)
+            // Tuile sélectionnée : fond plein sous la teinte, sinon son ombre se voit au travers.
+            .then(if (focused) Modifier.background(FocusedBase) else Modifier)
             .background(background)
             .border(if (focused) 2.dp else 1.dp, outline, TileShape),
     ) {
@@ -169,6 +171,9 @@ private fun cornerColor(tile: Tile, active: Boolean): Color = when {
 }
 
 private const val FOCUS_MS = 150
+
+/** Fond plein de la tuile sélectionnée, proche du fond de l'application. */
+private val FocusedBase = Color(0xFF14181E)
 
 /** Tailles essayées, de la plus grande à la plus petite, pour qu'une valeur tienne en largeur. */
 private val FitScales = listOf(1f, 0.88f, 0.76f, 0.66f, 0.56f)
