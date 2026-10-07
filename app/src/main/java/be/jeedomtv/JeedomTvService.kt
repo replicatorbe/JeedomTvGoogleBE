@@ -14,6 +14,7 @@ import android.net.Network
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -55,12 +56,15 @@ class JeedomTvService : Service() {
         super.onCreate()
         promoteToForeground()
         app.controller.onScreenChanged(getSystemService(PowerManager::class.java).isInteractive)
-        registerReceiver(
+        // Diffusions du système seulement : le récepteur n'a pas à être joignable par d'autres applications.
+        ContextCompat.registerReceiver(
+            this,
             screenReceiver,
             IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_SCREEN_OFF)
             },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
     }
@@ -81,7 +85,12 @@ class JeedomTvService : Service() {
         } else {
             0
         }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), type)
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), type)
+        } catch (e: IllegalStateException) {
+            // Android 12+ : premier plan refusé à ce moment ; le processus continue sans lui.
+            Log.w(TAG, "premier plan refusé", e)
+        }
     }
 
     override fun onDestroy() {
@@ -108,9 +117,21 @@ class JeedomTvService : Service() {
     companion object {
         private const val CHANNEL_ID = "jeedom"
         private const val NOTIFICATION_ID = 1
+        private const val TAG = "JeedomTv"
 
+        /**
+         * Démarre (ou relance) le service. Android 12+ refuse un service au premier plan démarré
+         * depuis l'arrière-plan hors des cas permis (démarrage de la TV, mise à jour…) : l'application
+         * ne doit pas planter pour autant, l'ouverture de l'écran le redémarrera.
+         */
         fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, JeedomTvService::class.java))
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, JeedomTvService::class.java))
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "service au premier plan refusé pour l'instant", e)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "service au premier plan refusé", e)
+            }
         }
     }
 }
