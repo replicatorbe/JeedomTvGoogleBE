@@ -7,7 +7,7 @@ import org.junit.Test
 
 class KeyFieldTest {
 
-    private val saved = "8724000b26a7863220293fb3ba5a5381"
+    private val saved = "0123456789abcdef0123456789ab5381"
 
     @Test
     fun `cle enregistree affichee masquee et conservee sans modification`() {
