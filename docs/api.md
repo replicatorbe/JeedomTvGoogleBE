@@ -81,9 +81,9 @@ Champs d'une tuile :
 | Champ | Type | Remarque |
 |---|---|---|
 | `id` | string | Stable tant que la configuration ne change pas. Unique pour la TV (pas seulement dans la page). Opaque pour la TV (`t12`, `s34`…). |
-| `type` | string | `switch`, `shutter`, `slider`, `info`, `scene`. Un type inconnu doit être affiché comme `info` par la TV. |
+| `type` | string | `switch`, `shutter`, `slider`, `info`, `scene`, `button`. Un type inconnu doit être affiché comme `info` par la TV. |
 | `name` | string | Peut prendre la forme « Pièce · Nom » (séparateur ` · `, pages par type) : la TV affiche alors la pièce en petit au-dessus du nom. |
-| `icon` | string | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `generic`. Inconnu → `generic`. |
+| `icon` | string | `light`, `plug`, `shutter`, `thermostat`, `temperature`, `scene`, `fan`, `lock`, `alarm`, `camera`, `generic`. Inconnu → `generic`. |
 | `confirm` | bool | La TV demande une confirmation avant toute action. |
 | `value` | string ou null | Valeur brute de la commande info liée ; `null` si la tuile n'a pas de retour d'état (volet rfxcom, scénario). |
 | `unit` | string | Peut être vide. |
@@ -114,6 +114,7 @@ Actions par type :
 | `shutter` | `up`, `down`, `stop`, `set` (avec `value`, seulement si la tuile a `min`/`max`) |
 | `slider` | `set` (avec `value`, ramenée par le plugin dans [`min`, `max`]) |
 | `scene` | `run` |
+| `button` | `press` |
 | `info` | aucune (422) |
 
 `toggle` sans commande toggle côté Jeedom : le plugin choisit `on` ou `off` d'après la valeur.
@@ -265,3 +266,30 @@ la TV qui a reçu l'ordre.
 |---|---|
 | 200 | L'image |
 | 404 | Identifiant inconnu pour cette TV, ou image expirée |
+
+## Tuile `button`
+
+Un bouton exécute **une commande action Jeedom** choisie dans le plugin (rôle `press`),
+avec des options fixes facultatives enregistrées sur la tuile côté plugin (`title`,
+`message`, `slider`, `select`, `color`). Exemple : « Afficher caméra » de CameraOnTv avec
+le message `{"camera":"INTERCOM","duration":60}`. Les options ne sont jamais envoyées à la TV.
+
+- Action de la TV : `press` (POST `exec` sans `value`).
+- `value` : celle de la commande info du rôle facultatif `state`, sinon `null`.
+- Affichage TV : comme `scene` (« ▶ » quand `value` est `null`).
+
+## Touches de couleur (raccourcis télécommande)
+
+La réponse de `layout` porte un champ facultatif **`keys`** : la page à ouvrir pour chaque
+touche de couleur de la télécommande. Les couleurs absentes ou sans page sont inactives.
+
+```json
+"keys": {"red": "p1", "green": "scenes", "yellow": "p2", "blue": "p6"}
+```
+
+- Clés possibles : `red`, `green`, `yellow`, `blue`. Valeur : un `id` de page présent dans `pages`.
+- Réglées par TV dans le plugin (une liste de pages par couleur). Un changement modifie `revision`.
+- Côté TV, la touche fonctionne **partout** (y compris par-dessus une autre application, grâce à
+  un service d'accessibilité) : elle ouvre le panneau sur cette page ; la même touche, ou Retour,
+  le referme. Dans l'application ouverte, elle affiche directement la page.
+- `keys` absent : la touche rouge ouvre la première page, les autres sont inactives.
