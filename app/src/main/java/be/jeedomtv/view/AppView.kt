@@ -45,8 +45,15 @@ fun AppView(controller: AppController) {
             Screen.Loading -> LoadingView()
             Screen.Pages -> PagesView(state)
         }
-        state.banner?.let {
-            BannerView(it, Modifier.align(Alignment.TopCenter).padding(top = 24.dp), videoAllowed = bannerVideoAllowed(state))
+        state.banner?.let { banner ->
+            val videoAllowed = bannerVideoAllowed(state)
+            // Carte image / vidéo en haut à droite ; message texte en haut, au centre.
+            val position = if (banner.isMediaCard(videoAllowed)) {
+                Modifier.align(Alignment.TopEnd).padding(top = 24.dp, end = 24.dp)
+            } else {
+                Modifier.align(Alignment.TopCenter).padding(top = 24.dp)
+            }
+            NotificationView(banner, videoAllowed, position)
         }
         // Question de Jeedom dans l'application (en superposition, c'est une fenêtre à part).
         state.question?.takeIf { !it.inOverlay }?.let { question ->
@@ -58,44 +65,21 @@ fun AppView(controller: AppController) {
 
 /** Message de Jeedom (ordre `notify`), au-dessus de tout écran pendant quelques secondes. */
 @Composable
-internal fun BannerView(banner: Banner, modifier: Modifier = Modifier, videoAllowed: Boolean = true) {
-    val shape = RoundedCornerShape(12.dp)
-    val thumbnail by rememberDecodedImage(banner.imageBytes, maxWidth = THUMBNAIL_MAX_PX, maxHeight = THUMBNAIL_MAX_PX)
-    val video = banner.video?.takeIf { videoAllowed }
+internal fun BannerView(banner: Banner, modifier: Modifier = Modifier) {
+    // Même rayon et même liseré discret que la carte image / vidéo : plus de bordure épaisse.
+    val shape = RoundedCornerShape(16.dp)
     Row(
         modifier
             .widthIn(max = 960.dp)
             .background(JeedomTvColors.Overlay, shape)
-            .border(2.dp, JeedomTvColors.Accent, shape)
+            .border(1.dp, Color.White.copy(alpha = 0.15f), shape)
             .padding(horizontal = 24.dp, vertical = 18.dp),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        when {
-            // Vidéo en direct (caméra) dans une petite fenêtre ; l'image sert d'attente et de repli.
-            video != null -> LiveVideo(
-                video,
-                placeholder = thumbnail,
-                modifier = Modifier.width(BANNER_VIDEO_WIDTH).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)),
-            )
-            // Sans image ni vidéo : l'icône MDI de la notification, s'il y en a une.
-            thumbnail == null && banner.image == null && banner.icon != null -> MdiIcon(
-                banner.icon,
-                color = banner.iconColor?.let { Color(it) } ?: JeedomTvColors.Accent,
-                size = 48.dp,
-            )
-        }
-        // Vignette de l'image jointe (photo du portier…), à gauche du texte.
-        thumbnail?.takeIf { video == null }?.let { image ->
-            Image(
-                bitmap = image,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .height(120.dp)
-                    .aspectRatio(image.width.toFloat() / image.height.coerceAtLeast(1))
-                    .clip(RoundedCornerShape(8.dp)),
-            )
+        // L'icône MDI de la notification, s'il y en a une (les images et vidéos ont leur carte).
+        banner.icon?.let { icon ->
+            MdiIcon(icon, color = banner.iconColor?.let { Color(it) } ?: JeedomTvColors.Accent, size = 48.dp)
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (banner.title.isNotBlank()) {
@@ -106,14 +90,9 @@ internal fun BannerView(banner: Banner, modifier: Modifier = Modifier, videoAllo
     }
 }
 
-/** Largeur de la petite fenêtre vidéo d'un bandeau (16:9). */
-private val BANNER_VIDEO_WIDTH = 320.dp
-
 /**
  * Un seul flux vidéo à la fois : la TV n'a que deux décodeurs, dont un pour la télé elle-même.
  * Une question avec vidéo garde le décodeur ; le bandeau montre alors son image.
  */
 fun bannerVideoAllowed(state: be.jeedomtv.model.AppState): Boolean = state.question?.video == null
 
-/** Plus grand côté visé au décodage d'une vignette de bandeau. */
-private const val THUMBNAIL_MAX_PX = 480

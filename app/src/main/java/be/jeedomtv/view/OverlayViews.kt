@@ -16,6 +16,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,14 +39,26 @@ private val PanelBackground = JeedomTvColors.Background.copy(alpha = 0.95f)
 
 /** Bandeau `notify` par-dessus la vidéo (fenêtre ni focusable ni tactile). */
 @Composable
-fun OverlayNoticeView(state: AppState) {
-    val notice = state.overlay as? Overlay.Notice ?: return
+fun OverlayNoticeView(state: AppState, shown: Boolean = true) {
+    // Le dernier bandeau reste dessiné le temps du fondu de sortie, une fois retiré de l'état.
+    val current = (state.overlay as? Overlay.Notice)?.banner
+    var last by remember { mutableStateOf(current) }
+    if (current != null) last = current
+    val banner = last ?: return
+    val alpha by animateFloatAsState(if (shown && current != null) 1f else 0f, tween(EXIT_FADE_MS), label = "sortie")
     // Coin demandé par la notification (`corner`) ; la fenêtre est en haut ou en bas de l'écran.
-    val alignment = if (notice.banner.corner.isStart) Alignment.TopStart else Alignment.TopEnd
-    Box(Modifier.fillMaxWidth().padding(horizontal = 40.dp), contentAlignment = alignment) {
-        BannerView(notice.banner, Modifier.padding(8.dp), videoAllowed = bannerVideoAllowed(state))
+    val alignment = if (banner.corner.isStart) Alignment.TopStart else Alignment.TopEnd
+    // Marges : la carte à ~24 dp des bords ; un peu de place autour pour son ombre portée.
+    Box(
+        Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha }.padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = alignment,
+    ) {
+        NotificationView(banner, videoAllowed = bannerVideoAllowed(state))
     }
 }
+
+/** Fondu de sortie d'une notification en superposition (la fenêtre est retirée ensuite). */
+internal const val EXIT_FADE_MS = 200
 
 /**
  * Panneau `show` par-dessus la vidéo : onglets, grille compacte de la page, réglage ou

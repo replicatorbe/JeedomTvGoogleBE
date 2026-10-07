@@ -58,7 +58,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Barre d'état** et **notifications riches** (icône, coin, vidéo en direct de la caméra) : elles remplacent l'application TvOverlay. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
-- La version (« Jeedom TV 0.8.1 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.8.2 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -450,7 +450,9 @@ L'ordre `notify` (commande `Message`, ou `Notifier (JSON)` au format TvOverlay) 
 | `tag` | Identifiant de la notification : une nouvelle notification remplace celle affichée ; `Retirer une notification` (ordre `dismiss`) la retire aussitôt. |
 | `icon`, `iconColor` | Icône Material Design à gauche du texte, quand il n'y a ni image ni vidéo. |
 | `corner` | Coin du bandeau par-dessus une autre application : en haut à droite par défaut. En bas, il se place au-dessus de la barre d'état. |
-| `video` | Flux en direct (`rtsp://` des caméras, ou HLS `…m3u8`), **sans le son**, dans une petite fenêtre du bandeau (320 × 180 dp). L'image jointe sert d'attente puis de repli si le flux ne vient pas. |
+| `video` | Flux en direct (`rtsp://` des caméras, ou HLS `…m3u8`), **sans le son**, en incrustation « image dans l'image » (voir ci-dessous). L'image jointe sert d'attente puis de repli si le flux ne vient pas. |
+
+Une notification avec vidéo ou image s'affiche en **incrustation « image dans l'image »** : la vidéo (ou l'image) est la carte, en 16:9, d'environ 400 dp de large (800 px sur la TV), dans le coin demandé à 24 dp des bords, coins arrondis, liseré blanc très fin et ombre douce. Le titre et le message s'incrustent en bas sur un dégradé, avec l'icône MDI dans une pastille ; un badge « ● EN DIRECT » (point rouge qui pulse) s'affiche pendant la lecture, et une fine barre montre le temps restant, dans la couleur de l'icône. Entrée en glissement et fondu depuis le bord du coin, sortie en fondu. Avant la première image : la photo jointe, sinon un fond sombre avec une icône de caméra. Une notification sans image ni vidéo reste un bandeau texte, avec le même rayon et le même liseré discret.
 
 Une **question** (bloc « Demander ») peut aussi porter une vidéo : elle remplace la photo, à la même place, l'image servant d'attente et de repli. Le lecteur est libéré dès la réponse envoyée.
 

@@ -66,7 +66,7 @@ class AppControllerOverlayTest {
         val c = started(factory)
         factory.send(TvCommand.Notify(1, "Sonnette", "Quelqu'un sonne"))
         runCurrent()
-        assertEquals(Overlay.Notice(Banner("Sonnette", "Quelqu'un sonne")), c.overlay)
+        assertEquals(Overlay.Notice(Banner("Sonnette", "Quelqu'un sonne", durationMs = 8_000)), c.overlay)
         assertNull("pas le bandeau de l'application", c.state.value.banner)
         assertFalse("la vidéo reste devant", c.state.value.foregroundRequested)
         advanceTimeBy(7_900)
@@ -97,7 +97,7 @@ class AppControllerOverlayTest {
         runCurrent()
         assertEquals(Overlay.None, c.overlay)
         assertEquals(1, c.state.value.pageIndex)
-        assertEquals(Banner("", "Bonjour"), c.state.value.banner)
+        assertEquals(Banner("", "Bonjour", durationMs = 8_000), c.state.value.banner)
     }
 
     @Test
@@ -275,7 +275,7 @@ class AppControllerOverlayTest {
         factory.send(TvCommand.Show(1, "p2"), TvCommand.Notify(2, "Sonnette", "Porte"))
         runCurrent()
         assertTrue(c.overlay is Overlay.Panel)
-        assertEquals(Banner("Sonnette", "Porte"), c.state.value.banner)
+        assertEquals(Banner("Sonnette", "Porte", durationMs = 8_000), c.state.value.banner)
     }
 
     @Test

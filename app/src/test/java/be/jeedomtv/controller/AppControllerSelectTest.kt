@@ -232,9 +232,9 @@ class AppControllerSelectTest {
         val c = started(factory)
         factory.pushChanges(commands("c1", TvCommand.Notify(1, "", "Long", durationSec = 30)))
         runCurrent()
-        assertEquals(Banner("", "Long"), c.state.value.banner)
+        assertEquals(Banner("", "Long", durationMs = 30_000), c.state.value.banner)
         advanceTimeBy(29_900)
-        assertEquals(Banner("", "Long"), c.state.value.banner)
+        assertEquals(Banner("", "Long", durationMs = 30_000), c.state.value.banner)
         advanceTimeBy(200)
         assertNull(c.state.value.banner)
     }
@@ -259,7 +259,7 @@ class AppControllerSelectTest {
         factory.pushChanges(commands("c1", TvCommand.Notify(1, "", "Normal")))
         runCurrent()
         advanceTimeBy(7_900)
-        assertEquals(Banner("", "Normal"), c.state.value.banner)
+        assertEquals(Banner("", "Normal", durationMs = 8_000), c.state.value.banner)
         advanceTimeBy(200)
         assertNull(c.state.value.banner)
     }

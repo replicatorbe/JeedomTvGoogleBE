@@ -132,7 +132,7 @@ class AppControllerRichTest {
         factory.send(TvCommand.Notify(1, "Sonnette", "On sonne", tag = "sonnette", icon = "mdi:doorbell", iconColor = -1, corner = Corner.BottomEnd, video = camera))
         runCurrent()
         val banner = (c.state.value.overlay as Overlay.Notice).banner
-        assertEquals(Banner("Sonnette", "On sonne", tag = "sonnette", icon = "mdi:doorbell", iconColor = -1, corner = Corner.BottomEnd, video = camera), banner)
+        assertEquals(Banner("Sonnette", "On sonne", tag = "sonnette", icon = "mdi:doorbell", iconColor = -1, corner = Corner.BottomEnd, video = camera, durationMs = 8_000), banner)
     }
 
     @Test

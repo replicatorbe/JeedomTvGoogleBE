@@ -61,8 +61,18 @@ private enum class VideoStatus { Connecting, Playing, Failed }
  * - L'URL n'est jamais écrite dans les journaux (identifiants des caméras).
  */
 @Composable
-fun LiveVideo(video: VideoUrl, placeholder: ImageBitmap?, modifier: Modifier = Modifier) {
-    Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+fun LiveVideo(
+    video: VideoUrl,
+    placeholder: ImageBitmap?,
+    modifier: Modifier = Modifier,
+    /** true à la première image, false en attente ou en erreur (badge « EN DIRECT »). */
+    onPlayingChange: (Boolean) -> Unit = {},
+    /** Attente sans image de repli ; par défaut un mot (« Connexion… », « Vidéo indisponible »). */
+    waiting: (@Composable (failed: Boolean) -> Unit)? = null,
+    /** Fond tant que la vidéo n'est pas là (la carte de notification garde le sien). */
+    background: Color = Color.Black,
+) {
+    Box(modifier.background(background), contentAlignment = Alignment.Center) {
         val context = LocalContext.current
         val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
         val started = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
@@ -112,12 +122,18 @@ fun LiveVideo(video: VideoUrl, placeholder: ImageBitmap?, modifier: Modifier = M
             )
         }
 
-        if (status != VideoStatus.Playing || player == null) {
+        val playing = status == VideoStatus.Playing && player != null
+        LaunchedEffect(playing) { onPlayingChange(playing) }
+        if (!playing) {
             if (placeholder != null) {
                 Image(placeholder, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {
                 val failed = status == VideoStatus.Failed || player == null
-                Text(if (failed) "Vidéo indisponible" else "Connexion…", color = JeedomTvColors.TextMuted, fontSize = 16.sp)
+                if (waiting != null) {
+                    waiting(failed)
+                } else {
+                    Text(if (failed) "Vidéo indisponible" else "Connexion…", color = JeedomTvColors.TextMuted, fontSize = 16.sp)
+                }
             }
         }
     }

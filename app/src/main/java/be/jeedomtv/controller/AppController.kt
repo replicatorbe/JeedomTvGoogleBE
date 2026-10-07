@@ -524,6 +524,8 @@ class AppController(
      */
     private fun notify(command: TvCommand.Notify) {
         val current = state.value
+        // Durée demandée par Jeedom (`duration`), sinon celle de la TV.
+        val durationMs = command.durationSec?.let { it * 1000L } ?: BANNER_DURATION_MS
         // Un nouveau bandeau remplace toujours le précédent (même `tag` ou non) : un seul à la fois.
         val banner = Banner(
             command.title,
@@ -534,9 +536,9 @@ class AppController(
             iconColor = command.iconColor,
             corner = command.corner,
             video = command.video,
+            durationMs = durationMs,
         )
-        // Durée demandée par Jeedom (`duration`), sinon celle de la TV.
-        val durationMs = command.durationSec?.let { it * 1000L } ?: BANNER_DURATION_MS
+
         if (!current.uiVisible && !current.foregroundRequested) {
             when {
                 // Le panneau affiche le bandeau en son sein.

@@ -53,6 +53,8 @@ data class Banner(
     val corner: Corner = Corner.TopEnd,
     /** Flux en direct dans le bandeau, sans le son. */
     val video: VideoUrl? = null,
+    /** Durée d'affichage (ms), pour la barre de temps restant de la carte ; 0 si inconnue. */
+    val durationMs: Long = 0,
 )
 
 /**

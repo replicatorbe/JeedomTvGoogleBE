@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
@@ -39,6 +41,7 @@ import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Corner
 import be.jeedomtv.model.Overlay
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -140,8 +143,8 @@ class OverlayWindowManager(
 
     private fun show(kind: Kind) {
         Log.i(TAG, "superposition : $kind")
-        // Bandeau d'un autre coin (haut / bas) : nouvelle fenêtre.
-        notice = notice?.let { remove(it); null }
+        // Bandeau d'un autre coin (haut / bas) : nouvelle fenêtre. L'ancien s'efface en fondu.
+        notice = notice?.let { fadeOutAndRemove(it); null }
         if (kind != Kind.Panel) panel = panel?.let { remove(it); null }
         when (kind) {
             Kind.None -> Unit
@@ -223,6 +226,15 @@ class OverlayWindowManager(
         }
     }
 
+    /** Fondu de sortie (voir [OverlayNoticeView]), puis la fenêtre est retirée. */
+    private fun fadeOutAndRemove(window: OverlayWindow) {
+        window.shown.value = false
+        scope.launch {
+            delay(EXIT_FADE_MS + 50L)
+            remove(window)
+        }
+    }
+
     private fun noticeWindow(top: Boolean): OverlayWindow {
         val params = baseParams().apply {
             flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -232,10 +244,14 @@ class OverlayWindowManager(
             width = WindowManager.LayoutParams.MATCH_PARENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
             gravity = if (top) Gravity.TOP else Gravity.BOTTOM
+            // 12 dp + les 12 dp de marge du contenu (place de l'ombre) : la carte à ~24 dp du bord.
             // En bas : au-dessus de la barre d'état (coins du bas), pour ne pas la masquer.
-            y = ((if (top) 24 else 40) * context.resources.displayMetrics.density).toInt()
+            y = ((if (top) 12 else 28) * context.resources.displayMetrics.density).toInt()
         }
-        return OverlayWindow(OverlayRoot(context, onKey = null), params) { state -> OverlayNoticeView(state) }
+        val shown = mutableStateOf(true)
+        return OverlayWindow(OverlayRoot(context, onKey = null), params, shown = shown) { state ->
+            OverlayNoticeView(state, shown.value)
+        }
     }
 
     private fun panelWindow(): OverlayWindow {
@@ -306,6 +322,8 @@ class OverlayWindowManager(
         val root: OverlayRoot,
         val params: WindowManager.LayoutParams,
         val onRemoved: () -> Unit = {},
+        /** Faux pendant le fondu de sortie, avant le retrait de la fenêtre. */
+        val shown: MutableState<Boolean> = mutableStateOf(true),
         content: @Composable (AppState) -> Unit,
     ) {
         val owner = OverlayOwner()
