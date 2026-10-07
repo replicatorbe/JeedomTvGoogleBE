@@ -95,6 +95,12 @@ data class Question(
     val imageBytes: ByteArray? = null,
 )
 
+/**
+ * Zone qui reçoit les flèches sur l'écran des pages et dans le panneau : la grille de tuiles,
+ * ou la rangée d'onglets (◀ ▶ y changent de page, pour les télécommandes sans CH+ / CH-).
+ */
+enum class FocusZone { Tiles, Tabs }
+
 /** État complet de l'application : la seule chose que les vues observent. */
 data class AppState(
     val screen: Screen = Screen.Loading,
@@ -111,6 +117,8 @@ data class AppState(
     val pageIndex: Int = 0,
     /** Index (dans la page) de la tuile sélectionnée : porté par l'état, pas par le focus Compose. */
     val focusedIndex: Int = 0,
+    /** Tuiles ou onglets ; dans les onglets, aucune tuile n'est mise en avant. */
+    val focusZone: FocusZone = FocusZone.Tiles,
     val adjust: Adjust? = null,
     /** Mode de choix d'une tuile `select`. */
     val choice: ChoiceMode? = null,

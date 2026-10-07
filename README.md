@@ -57,17 +57,19 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Bandeau d'infos** : jusqu'à 6 infos de la maison (température extérieure, poubelles, production solaire…) choisies dans Jeedom, sous les onglets et dans le panneau en superposition. Voir [Bandeau d'infos](#bandeau-dinfos).
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
-- La version (« Jeedom TV 0.7.1 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.7.2 ») s'affiche discrètement sur l'écran de configuration.
 
-| Touche | Grille | Mode réglage (curseur, volet avec position) | Volet sans position |
-|---|---|---|---|
-| Flèches | Déplacer la sélection | ▲ ▼ : ± un pas · ◀ ▶ : min / max | ▲ monter · ▼ descendre |
-| OK | Agir sur la tuile (voir ci-dessous) | Envoyer la valeur et sortir | Stop |
-| 1 à 9 | Agir sur la tuile N de la page | – | – |
-| CH+ / CH- | Page suivante / précédente (en boucle) | Volet : monter / descendre | Monter / descendre |
-| Rouge, vert, jaune, bleu | Page associée | Page associée (le réglage est abandonné) | Page associée |
-| Menu | Configuration | Configuration | Configuration |
-| Retour | Quitter | Annuler | Sortir |
+| Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
+|---|---|---|---|---|
+| Flèches | Déplacer la sélection ; ▲ sur la première rangée : monter dans les onglets | ◀ ▶ : page précédente / suivante, affichée aussitôt (en boucle) · ▼ : première tuile | ▲ ▼ : ± un pas · ◀ ▶ : min / max | ▲ monter · ▼ descendre |
+| OK | Agir sur la tuile (voir ci-dessous) | Première tuile | Envoyer la valeur et sortir | Stop |
+| 1 à 9 | Agir sur la tuile N de la page | Comme dans la grille : redescendre sur la tuile N et agir | – | – |
+| CH+ / CH- | Page suivante / précédente (en boucle) | Idem, retour aux tuiles | Volet : monter / descendre | Monter / descendre |
+| Rouge, vert, jaune, bleu | Page associée | Page associée, retour aux tuiles | Page associée (le réglage est abandonné) | Page associée |
+| Menu | Configuration | Configuration | Configuration | Configuration |
+| Retour | Quitter | Retour aux tuiles | Annuler | Sortir |
+
+Les onglets se pilotent aux flèches pour les télécommandes sans CH+ / CH- (comme celle des TV TCL Google TV) : l'onglet ciblé est cerclé, et aucune tuile n'est alors mise en avant. Sur une page sans tuile, le focus reste dans les onglets (▼ et OK n'ont rien à rejoindre) et Retour quitte, comme depuis la grille.
 
 OK selon la tuile :
 
@@ -243,11 +245,11 @@ Sur Google TV, ouvrir une application par-dessus une autre fait passer la vidéo
 | Question | Boîte au centre de l'application | Sans image : bandeau compact dans le tiers inférieur de l'écran, la vidéo reste visible au-dessus. Avec image : boîte au centre, vidéo assombrie. Voir [Questions de Jeedom](#questions-de-jeedom). |
 | Quitter | Retour à l'application d'avant | Fermeture de la superposition |
 
-Touches du panneau : les mêmes que sur l'écran des pages (flèches, OK, 1 à 9, CH+ / CH-, mode réglage, confirmation), plus :
+Touches du panneau : les mêmes que sur l'écran des pages (flèches et onglets, OK, 1 à 9, CH+ / CH-, mode réglage, confirmation), plus :
 
 | Touche | Action |
 |---|---|
-| Retour | Fermer le panneau (ou annuler le réglage / la confirmation en cours) |
+| Retour | Fermer le panneau (ou revenir des onglets aux tuiles, annuler le réglage / la confirmation en cours) |
 | Menu | Ouvrir l'application complète sur la même page |
 | Touche de couleur | Page associée ; la touche de la page affichée ferme le panneau |
 

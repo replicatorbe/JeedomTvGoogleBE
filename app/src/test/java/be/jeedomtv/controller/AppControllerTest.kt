@@ -13,6 +13,7 @@ import be.jeedomtv.controller.RemoteCommand.Up
 import be.jeedomtv.model.Adjust
 import be.jeedomtv.model.AppModel
 import be.jeedomtv.model.AppState
+import be.jeedomtv.model.FocusZone
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Page
@@ -177,7 +178,10 @@ class AppControllerTest {
     fun `fleches dans la grille de 4 colonnes`() = runTest {
         val c = connected()
         c.press(Up)
-        assertEquals("haut depuis la première ligne : sans effet", 0, c.state.value.focusedIndex)
+        assertEquals("haut depuis la première ligne : les onglets", FocusZone.Tabs, c.state.value.focusZone)
+        c.press(Down)
+        assertEquals(FocusZone.Tiles, c.state.value.focusZone)
+        assertEquals(0, c.state.value.focusedIndex)
         c.press(Left)
         assertEquals(0, c.state.value.focusedIndex)
         c.press(Right, Right)

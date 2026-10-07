@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import be.jeedomtv.model.AppState
+import be.jeedomtv.model.FocusZone
 import be.jeedomtv.model.Overlay
 
 /** Fond du panneau presque opaque : l'interface de l'application vidéo (guide, menus) ne doit pas se lire au travers. */
@@ -64,7 +65,7 @@ fun OverlayPanelView(state: AppState) {
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
-                    PageTab(page, selected = index == state.pageIndex)
+                    PageTab(page, selected = index == state.pageIndex, targeted = index == state.pageIndex && state.focusZone == FocusZone.Tabs)
                 }
             }
             Spacer(Modifier.width(16.dp))
@@ -134,11 +135,12 @@ fun OverlayPanelView(state: AppState) {
 /** Rappel des touches du panneau : Retour ferme, Menu ouvre l'application complète. */
 fun panelHelpText(state: AppState): String {
     if (state.confirm != null || state.adjust != null || state.choice != null) return helpText(state)
+    if (state.focusZone == FocusZone.Tabs) return TABS_HELP
     val action = okHelp(state.focusedTile?.type)
     return listOfNotNull(
         "Flèches : choisir",
         action,
-        "CH+/CH- : page",
+        pagesHelp(state),
         "Menu : ouvrir Jeedom TV",
         "Retour : fermer",
     ).joinToString(" · ")

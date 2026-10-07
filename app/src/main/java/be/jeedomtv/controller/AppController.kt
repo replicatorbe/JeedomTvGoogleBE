@@ -6,6 +6,7 @@ import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Banner
 import be.jeedomtv.model.ChoiceMode
 import be.jeedomtv.model.ColorKey
+import be.jeedomtv.model.FocusZone
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Overlay
@@ -472,6 +473,7 @@ class AppController(
                 screen = Screen.Pages,
                 pageIndex = index,
                 focusedIndex = 0,
+                focusZone = FocusZone.Tiles,
                 adjust = null,
                 choice = null,
                 confirm = null,
@@ -493,6 +495,7 @@ class AppController(
                         screen = Screen.Pages,
                         pageIndex = index,
                         focusedIndex = previous.focusedIndex.coerceIn(0, (count - 1).coerceAtLeast(0)),
+                        focusZone = FocusZone.Tiles,
                     )
                 }
                 Screen.Setup -> s.copy(screen = Screen.Setup)
@@ -622,6 +625,7 @@ class AppController(
             it.copy(
                 pageIndex = index,
                 focusedIndex = 0,
+                focusZone = FocusZone.Tiles,
                 adjust = null,
                 choice = null,
                 confirm = null,
@@ -654,7 +658,11 @@ class AppController(
                 val index = s.pages.indexOfFirst { it.id == back.pageId }.takeIf { it >= 0 }
                     ?: s.pageIndex.coerceIn(0, (s.pages.size - 1).coerceAtLeast(0))
                 val count = s.pages.getOrNull(index)?.tiles?.size ?: 0
-                closed.copy(pageIndex = index, focusedIndex = back.focusedIndex.coerceIn(0, (count - 1).coerceAtLeast(0)))
+                closed.copy(
+                    pageIndex = index,
+                    focusedIndex = back.focusedIndex.coerceIn(0, (count - 1).coerceAtLeast(0)),
+                    focusZone = FocusZone.Tiles,
+                )
             } else {
                 closed
             }
@@ -679,6 +687,7 @@ class AppController(
         val adjust = current.adjust
         val adjustTile = current.adjustTile
         if (adjust != null && adjustTile != null) return onAdjustCommand(command, adjust, adjustTile)
+        onTabsCommandIfAny(command, current)?.let { return it }
         if (command == RemoteCommand.Back) {
             dismissOverlay(restoreSelection = true)
             return true
@@ -696,7 +705,7 @@ class AppController(
         if (index == current.pageIndex) {
             dismissOverlay(restoreSelection = true)
         } else {
-            update { it.copy(pageIndex = index, focusedIndex = 0, adjust = null, choice = null, confirm = null) }
+            update { it.copy(pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tiles, adjust = null, choice = null, confirm = null) }
         }
         return true
     }
@@ -919,7 +928,7 @@ class AppController(
             // Touche de couleur : la configuration en service reste, la page s'affiche.
             is RemoteCommand.Color -> {
                 val index = current.pageIndexFor(command.key) ?: return false
-                update { it.copy(screen = Screen.Pages, error = null, pageIndex = index, focusedIndex = 0) }
+                update { it.copy(screen = Screen.Pages, error = null, pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tiles) }
             }
             else -> return false
         }
@@ -932,7 +941,7 @@ class AppController(
         // Application affichée : la page associée s'affiche directement, réglage ou confirmation abandonnés.
         if (command is RemoteCommand.Color) {
             val target = current.pageIndexFor(command.key) ?: return false
-            update { it.copy(pageIndex = target, focusedIndex = 0, adjust = null, choice = null, confirm = null) }
+            update { it.copy(pageIndex = target, focusedIndex = 0, focusZone = FocusZone.Tiles, adjust = null, choice = null, confirm = null) }
             return true
         }
         current.confirm?.let { return onConfirmCommand(command, it) }
@@ -941,7 +950,42 @@ class AppController(
         val adjust = current.adjust
         if (adjust != null && adjustTile != null) return onAdjustCommand(command, adjust, adjustTile)
         if (adjust != null) update { it.copy(adjust = null, choice = null) } // Tuile disparue entre-temps.
+        onTabsCommandIfAny(command, current)?.let { return it }
         return onGridCommand(command, current)
+    }
+
+    /**
+     * Touches quand le focus est dans les onglets (null sinon), pour l'écran des pages comme pour
+     * le panneau : ◀ ▶ changent de page aussitôt (en boucle, comme CH+ / CH-), ▼ ou OK
+     * redescendent sur la première tuile, Retour revient aux tuiles. Sur une page sans tuile, le
+     * focus reste dans les onglets et Retour garde son effet habituel (quitter, fermer le panneau).
+     * Les chiffres agissent sur les tuiles comme depuis la grille ; CH+ / CH- ramènent aux tuiles.
+     */
+    private fun onTabsCommandIfAny(command: RemoteCommand, current: AppState): Boolean? {
+        if (current.focusZone != FocusZone.Tabs) return null
+        val hasTiles = current.currentPage?.tiles.orEmpty().isNotEmpty()
+        when (command) {
+            RemoteCommand.Left -> showPageInTabs(current.pageIndex - 1)
+            RemoteCommand.Right -> showPageInTabs(current.pageIndex + 1)
+            RemoteCommand.Down, RemoteCommand.Ok -> if (hasTiles) {
+                update { it.copy(focusZone = FocusZone.Tiles, focusedIndex = 0) }
+            }
+            RemoteCommand.Back -> {
+                if (!hasTiles) return null
+                update { it.copy(focusZone = FocusZone.Tiles) }
+            }
+            RemoteCommand.Up -> Unit // Déjà en haut.
+            // Chiffres, CH+ / CH-, Menu : comme depuis les tuiles.
+            else -> return null
+        }
+        return true
+    }
+
+    /** ◀ ▶ dans les onglets : page voisine, en boucle ; le focus reste dans les onglets. */
+    private fun showPageInTabs(index: Int) {
+        val count = state.value.pages.size
+        if (count == 0) return
+        update { it.copy(pageIndex = Math.floorMod(index, count), focusedIndex = 0, focusZone = FocusZone.Tabs) }
     }
 
     private fun onGridCommand(command: RemoteCommand, current: AppState): Boolean {
@@ -949,8 +993,12 @@ class AppController(
         val index = current.focusedIndex
         val columns = AppState.GRID_COLUMNS
         when (command) {
-            // Haut depuis la première ligne : sans effet (les onglets se changent par CH+ / CH-).
-            RemoteCommand.Up -> moveFocusTo(index - columns, tiles.size)
+            // Haut depuis la première rangée (ou une page vide) : le focus monte dans les onglets.
+            RemoteCommand.Up -> if (index < columns || tiles.isEmpty()) {
+                update { it.copy(focusZone = FocusZone.Tabs) }
+            } else {
+                moveFocusTo(index - columns, tiles.size)
+            }
             RemoteCommand.Down -> moveDown(index, tiles.size)
             RemoteCommand.Left -> moveFocusTo(index - 1, tiles.size)
             RemoteCommand.Right -> moveFocusTo(index + 1, tiles.size)
@@ -960,7 +1008,8 @@ class AppController(
             is RemoteCommand.Digit -> {
                 val target = command.value - 1
                 if (command.value in 1..9 && target in tiles.indices) {
-                    update { it.copy(focusedIndex = target) }
+                    // Depuis les onglets aussi : le focus redescend sur la tuile N.
+                    update { it.copy(focusedIndex = target, focusZone = FocusZone.Tiles) }
                     activate(tiles[target])
                 }
             }
@@ -989,12 +1038,14 @@ class AppController(
     private fun showPage(index: Int) {
         val count = state.value.pages.size
         if (count == 0) return
-        update { it.copy(pageIndex = Math.floorMod(index, count), focusedIndex = 0) }
+        update { it.copy(pageIndex = Math.floorMod(index, count), focusedIndex = 0, focusZone = FocusZone.Tiles) }
     }
 
     /** Configuration : la boucle continue (les ordres de Jeedom restent reçus). */
     private fun showSetup() {
-        update { it.copy(screen = Screen.Setup, error = null, adjust = null, choice = null, confirm = null) }
+        update {
+            it.copy(screen = Screen.Setup, error = null, adjust = null, choice = null, confirm = null, focusZone = FocusZone.Tiles)
+        }
     }
 
     /** OK (ou chiffre) sur une tuile, selon son type. */

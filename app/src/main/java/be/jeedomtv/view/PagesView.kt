@@ -1,6 +1,7 @@
 package be.jeedomtv.view
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,6 +39,7 @@ import be.jeedomtv.BuildConfig
 import be.jeedomtv.controller.formatValue
 import be.jeedomtv.model.Adjust
 import be.jeedomtv.model.AppState
+import be.jeedomtv.model.FocusZone
 import be.jeedomtv.model.Page
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileType
@@ -126,7 +128,7 @@ private fun Header(state: AppState) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
-                PageTab(page, selected = index == state.pageIndex)
+                PageTab(page, selected = index == state.pageIndex, targeted = index == state.pageIndex && state.focusZone == FocusZone.Tabs)
             }
         }
         Spacer(Modifier.width(24.dp))
@@ -151,7 +153,8 @@ internal fun OfflineIndicator() {
 }
 
 @Composable
-internal fun PageTab(page: Page, selected: Boolean) {
+internal fun PageTab(page: Page, selected: Boolean, targeted: Boolean = false) {
+    val shape = RoundedCornerShape(20.dp)
     Text(
         page.name,
         color = if (selected) JeedomTvColors.OnAccent else JeedomTvColors.TextMuted,
@@ -159,10 +162,9 @@ internal fun PageTab(page: Page, selected: Boolean) {
         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         maxLines = 1,
         modifier = Modifier
-            .background(
-                if (selected) JeedomTvColors.Accent else JeedomTvColors.Surface,
-                RoundedCornerShape(20.dp),
-            )
+            .background(if (selected) JeedomTvColors.Accent else JeedomTvColors.Surface, shape)
+            // Onglet ciblé par les flèches : contour marqué, tracé à l'intérieur (la rangée ne bouge pas).
+            .border(3.dp, if (targeted) JeedomTvColors.Text else Color.Transparent, shape)
             .padding(horizontal = 18.dp, vertical = 6.dp),
     )
 }
@@ -202,7 +204,8 @@ internal fun TileGrid(
                 TileView(
                     tile = tile,
                     number = index + 1,
-                    focused = index == state.focusedIndex,
+                    // Focus dans les onglets : aucune tuile n'est mise en avant.
+                    focused = state.focusZone == FocusZone.Tiles && index == state.focusedIndex,
                     flashing = tile.id == state.flashTileId,
                     modifier = Modifier.height(tileHeight),
                 )
@@ -322,6 +325,18 @@ internal fun okHelp(type: TileType?): String? = when (type) {
 }
 
 /** Rappel des touches du contexte courant. */
+/** Aide quand le focus est dans les onglets (écran des pages et panneau). */
+internal const val TABS_HELP = "◀ ▶ : changer de page · ▼ / OK : tuiles · Retour : tuiles · CH+/CH- : page"
+
+/**
+ * Changement de page : « ▲ : pages » sur la première rangée de tuiles (ou une page vide), d'où ▲
+ * monte aux onglets ; ailleurs « CH+/CH- : page ». Une seule des deux, pour que l'aide tienne.
+ */
+internal fun pagesHelp(state: AppState): String {
+    val tiles = state.currentPage?.tiles.orEmpty()
+    return if (tiles.isEmpty() || state.focusedIndex < AppState.GRID_COLUMNS) "▲ : pages" else "CH+/CH- : page"
+}
+
 fun helpText(state: AppState): String {
     if (state.confirm != null) return "OK : confirmer · Retour : annuler"
     if (state.choice != null && state.choiceTile != null) return "◀ ▶ : choisir · OK : envoyer · Retour : annuler"
@@ -335,12 +350,13 @@ fun helpText(state: AppState): String {
             "▲ ▼ : régler · ◀ ▶ : min / max · OK : envoyer · Retour : annuler$shutter"
         }
     }
+    if (state.focusZone == FocusZone.Tabs) return TABS_HELP
     val action = okHelp(state.focusedTile?.type)
     return listOfNotNull(
         "Flèches : choisir",
         action,
         "1-9 : tuile",
-        "CH+/CH- : page",
+        pagesHelp(state),
         "Menu : réglages",
         "Retour : quitter",
     ).joinToString(" · ")
