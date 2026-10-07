@@ -1,6 +1,9 @@
 package be.jeedomtv.view
 
 import be.jeedomtv.model.AppState
+import be.jeedomtv.model.Banner
+import be.jeedomtv.model.Overlay
+import be.jeedomtv.model.Question
 import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
 import org.junit.Assert.assertEquals
@@ -14,6 +17,15 @@ class DreamTest {
 
     private val header = (1..7).map { HeaderItem("h$it", "Info $it", value = "$it") }
     private val config = JeedomConfig("192.168.1.10", "cle")
+
+    @Test
+    fun `question, panneau ou application a ouvrir - l'ecran de veille s'efface`() {
+        assertFalse(dreamShouldWake(AppState(config = config, revision = "r", header = header)))
+        assertFalse("un simple message reste par-dessus la veille", dreamShouldWake(AppState(overlay = Overlay.Notice(Banner("", "Lave-linge")))))
+        assertTrue(dreamShouldWake(AppState(question = Question("j", "", "Ouvrir ?", listOf("Oui"), 30, 30))))
+        assertTrue(dreamShouldWake(AppState(overlay = Overlay.Panel("p1", 30))))
+        assertTrue(dreamShouldWake(AppState(foregroundRequested = true)))
+    }
 
     @Test
     fun `sans configuration - l'heure seule`() {

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.HeaderItem
+import be.jeedomtv.model.Overlay
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -54,6 +55,13 @@ fun dreamContent(state: AppState): DreamContent {
     val unreachable = state.offline || state.revision == null
     return DreamContent(if (unreachable) emptyList() else state.header.take(6), unreachable)
 }
+
+/**
+ * Un ordre de Jeedom demande l'attention : question posée, page affichée en panneau, ou
+ * application à ouvrir. L'écran de veille s'efface alors devant lui.
+ */
+fun dreamShouldWake(state: AppState): Boolean =
+    state.question != null || state.overlay is Overlay.Panel || state.foregroundRequested
 
 /** « 21:07 ». */
 fun dreamTime(millis: Long): String = SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date(millis))
