@@ -4,6 +4,34 @@ Application Android TV (Google TV) pour afficher et piloter à la télécommande
 
 Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/api.md). Il fait foi pour les deux côtés.
 
+## En images
+
+Captures en 1920×1080, avec une maison de démonstration (noms et valeurs fictifs).
+
+**Les pages, à la télécommande** : onglets, bandeau d'infos de la maison, tuiles en direct.
+
+![Lumières](docs/captures/01-lumieres.png)
+
+| Volets | Chauffage et clim |
+|---|---|
+| ![Volets](docs/captures/02-volets.png) | ![Chauffage et clim](docs/captures/03-chauffage-clim.png) |
+| **Liste de choix** (mode de la clim) | **Caméras** (ouvertes en direct avec CameraOnTv) |
+| ![Liste de choix](docs/captures/04-liste-de-choix.png) | ![Caméras](docs/captures/05-cameras.png) |
+| **Scénarios** (Cinéma, Bonne nuit, Je pars) | **Écran de veille domotique** |
+| ![Scénarios](docs/captures/06-scenarios.png) | ![Écran de veille](docs/captures/11-ecran-de-veille.png) |
+
+**Par-dessus la télé, sans l'interrompre** : une touche de couleur ou un ordre de Jeedom ouvre le panneau ; Jeedom peut aussi poser une question (bloc « Demander » d'un scénario) ou afficher un message.
+
+![Panneau par-dessus la télé](docs/captures/07-panneau-par-dessus-la-tele.jpg)
+
+| On sonne : photo du portier et question | « Voir » : la question passe sous la vidéo |
+|---|---|
+| ![Sonnette](docs/captures/08-sonnette-avec-photo.jpg) | ![Question sous la vidéo](docs/captures/09-question-sous-la-video.jpg) |
+| **Message avec photo** | |
+| ![Bandeau avec photo](docs/captures/10-bandeau-avec-photo.jpg) | |
+
+<sub>Vidéo d'arrière-plan : *Sintel*, © Blender Foundation, [durian.blender.org](https://durian.blender.org), licence Creative Commons Attribution 3.0. Photo du portier : illustration dessinée pour la démonstration.</sub>
+
 ## Fonctionnalités
 
 - Pages de tuiles définies dans Jeedom, une rangée d'onglets en haut, une grille de 4 colonnes en dessous.
