@@ -138,6 +138,12 @@ sealed interface TvCommand {
         val video: VideoUrl? = null,
     ) : TvCommand
 
+    /**
+     * Question à plusieurs TV répondue ailleurs (ou fermée) : la question de jeton [ask] se ferme.
+     * Avec [answer], la réponse donnée (et [by], la TV qui l'a donnée) s'affiche brièvement.
+     */
+    data class AskClose(override val id: Long?, val ask: String, val answer: String? = null, val by: String? = null) : TvCommand
+
     /** Retire tout de suite la notification de `tag` [target], si elle est encore affichée. */
     data class Dismiss(override val id: Long?, val target: String) : TvCommand
 

@@ -80,6 +80,12 @@ sealed interface QuestionStatus {
     data object Sending : QuestionStatus
     data class Sent(val answer: String) : QuestionStatus
     data class Failed(val message: String) : QuestionStatus
+
+    /** Question à plusieurs TV déjà répondue depuis une autre TV (réponse refusée en 409). */
+    data object AlreadyAnswered : QuestionStatus
+
+    /** Fermée par un ordre `ask_close` : réponse donnée sur une autre TV ([by], [answer]). */
+    data class AnsweredElsewhere(val answer: String, val by: String?) : QuestionStatus
 }
 
 /**

@@ -65,7 +65,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Remplace TvOverlay** : **barre d'état** (heure et indicateurs en permanence dans un coin), **notifications riches** (icône, coin, image) et **vidéo en direct** de la caméra dans une incrustation. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
 - Icônes **Material Design Icons** embarquées (licence Apache 2.0, voir [Licences](#licences-des-composants-tiers)).
-- La version (« Jeedom TV 0.9.1 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.9.2 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -397,6 +397,8 @@ Le bloc **Demander** d'un scénario Jeedom peut poser une question à la TV et a
 Une barre de compte à rebours montre le temps restant ; à la fin, la question se ferme d'elle-même et le scénario reçoit « Aucune réponse ». Les touches ne prolongent pas le délai. Après l'envoi, la TV affiche environ 2 s « Réponse envoyée : … », ou « Question expirée » / « Réponse refusée » si Jeedom ne l'accepte plus.
 
 La question passe au-dessus de tout (pages, réglage en cours, panneau, bandeau) ; à sa fermeture, ce qui était affiché derrière revient. Une nouvelle question remplace la précédente.
+
+**Question à plusieurs TV** (commande `Question` de l'équipement « Toutes les TV » du plugin) : la même question s'affiche sur chaque TV allumée. La première réponse l'emporte : sur les autres TV, la question affiche environ 3 s « Réponse donnée sur TV salon : Ouvrir », libère aussitôt la vidéo de la caméra, puis se ferme. Une réponse donnée trop tard ailleurs affiche « Déjà répondu » puis ferme la question. Retour sur une TV ne ferme pas la question sur les autres.
 
 Exemple de scénario « Portail » (déclencheur : la sonnette du portail) :
 

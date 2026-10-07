@@ -178,6 +178,8 @@ fun QuestionBanner(question: Question, modifier: Modifier = Modifier) {
             }
             is QuestionStatus.Sent -> Result("mdi:check-circle-outline", SentGreen, "Réponse envoyée : ${status.answer}", large = false)
             is QuestionStatus.Failed -> Result("mdi:alert-circle-outline", FailedRed, status.message, large = false)
+            QuestionStatus.AlreadyAnswered -> Result("mdi:information-outline", SoftBlue, ALREADY_ANSWERED, large = false)
+            is QuestionStatus.AnsweredElsewhere -> Result("mdi:check-circle-outline", SoftBlue, answeredElsewhereText(status), large = false)
         }
     }
 }
@@ -227,8 +229,17 @@ private fun QuestionContent(question: Question, large: Boolean) {
         }
         is QuestionStatus.Sent -> Result("mdi:check-circle-outline", SentGreen, "Réponse envoyée : ${status.answer}", large)
         is QuestionStatus.Failed -> Result("mdi:alert-circle-outline", FailedRed, status.message, large)
+        QuestionStatus.AlreadyAnswered -> Result("mdi:information-outline", SoftBlue, ALREADY_ANSWERED, large)
+        is QuestionStatus.AnsweredElsewhere -> Result("mdi:check-circle-outline", SoftBlue, answeredElsewhereText(status), large)
     }
 }
+
+/** Réponse refusée en 409 : une autre TV a répondu à la question (ton neutre). */
+internal const val ALREADY_ANSWERED = "Déjà répondu"
+
+/** « Réponse donnée sur TV salon : Ouvrir » (ordre `ask_close`). */
+fun answeredElsewhereText(status: QuestionStatus.AnsweredElsewhere): String =
+    "Réponse donnée sur ${status.by ?: "une autre TV"} : ${status.answer}"
 
 /** Résultat de la réponse, affiché ~2 s avant la fermeture. */
 @Composable

@@ -89,6 +89,9 @@ class AppController(
     /** Dernier état programmé pour l'envoi : un état identique n'est pas renvoyé. */
     private var lastScheduledState: TvState? = null
 
+    /** Jetons des questions fermées par `ask_close` (les plus récents seulement). */
+    private val closedAsks = LinkedHashSet<String>()
+
     /** Ids des ordres déjà traités (les plus récents seulement). */
     private val handledCommandIds = LinkedHashSet<Long>()
 
@@ -435,6 +438,7 @@ class AppController(
             is TvCommand.Dismiss -> dismissNotification(command.target)
             is TvCommand.Exit -> exit()
             is TvCommand.Ask -> ask(command)
+            is TvCommand.AskClose -> askClose(command)
         }
     }
 
@@ -774,6 +778,9 @@ class AppController(
      * la vidéo (permission accordée), sinon en ouvrant l'activité. Elle remplace la précédente.
      */
     private fun ask(command: TvCommand.Ask) {
+        // Déjà répondue sur une autre TV (ordre `ask_close` arrivé avant, même lot ou plus tôt) :
+        // elle n'apparaît plus.
+        if (command.ask in closedAsks) return
         cancelQuestionTimers()
         val current = state.value
         val hidden = !current.uiVisible
@@ -870,7 +877,8 @@ class AppController(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: JeedomException) {
-                QuestionStatus.Failed(
+                // 409 : question à plusieurs TV déjà répondue ailleurs (ton neutre, pas une erreur).
+                if (e.httpCode == 409) QuestionStatus.AlreadyAnswered else QuestionStatus.Failed(
                     when (e.httpCode) {
                         404 -> "Question expirée"
                         422 -> "Réponse refusée"
@@ -887,6 +895,30 @@ class AppController(
                 questionResultTimer = null
                 if (state.value.question?.ask == question.ask) closeQuestion()
             }
+        }
+    }
+
+    /**
+     * Ordre `ask_close` (question à plusieurs TV répondue ailleurs) : la question de ce jeton se
+     * ferme, après ~3 s de « Réponse donnée sur … » si la réponse est connue. Le lecteur vidéo est
+     * rendu aussitôt (la vidéo ne joue qu'en cours de choix). Une autre question n'est pas touchée,
+     * et ce jeton ne s'affichera plus s'il arrive ensuite.
+     */
+    private fun askClose(command: TvCommand.AskClose) {
+        closedAsks.add(command.ask)
+        if (closedAsks.size > MAX_CLOSED_ASKS) closedAsks.remove(closedAsks.first())
+        val question = state.value.question?.takeIf { it.ask == command.ask } ?: return
+        cancelQuestionTimers()
+        val answer = command.answer
+        if (answer == null) {
+            closeQuestion()
+            return
+        }
+        update { it.copy(question = question.copy(status = QuestionStatus.AnsweredElsewhere(answer, command.by))) }
+        questionResultTimer = scope.launch {
+            delay(ANSWERED_ELSEWHERE_MS)
+            questionResultTimer = null
+            if (state.value.question?.ask == command.ask) closeQuestion()
         }
     }
 
@@ -1313,6 +1345,12 @@ class AppController(
 
         /** Durée d'affichage du résultat d'une réponse. */
         const val QUESTION_RESULT_MS = 2_000L
+
+        /** Affichage de « Réponse donnée sur … » avant la fermeture (ordre `ask_close`). */
+        const val ANSWERED_ELSEWHERE_MS = 3_000L
+
+        /** Jetons de questions fermées retenus (une question en retard ne s'affiche plus). */
+        const val MAX_CLOSED_ASKS = 50
 
         const val ANSWER_ERROR = "Réponse impossible"
 

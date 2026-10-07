@@ -494,6 +494,9 @@ private data class CommandDto(
     val message: String? = null,
     val ask: String? = null,
     val answers: List<JsonElement>? = null,
+    /** Réponse donnée sur une autre TV (`ask_close`). */
+    val answer: JsonElement? = null,
+    val by: String? = null,
     val timeout: Double? = null,
     val image: String? = null,
     val tag: JsonElement? = null,
@@ -532,6 +535,15 @@ private data class CommandDto(
         )
         "dismiss" -> target.asText()?.takeIf { it.isNotBlank() }?.let { TvCommand.Dismiss(orderId, it) }
         "exit" -> TvCommand.Exit(orderId)
+        // Fermeture d'une question à plusieurs TV : le jeton est indispensable.
+        "ask_close" -> ask?.takeIf { it.isNotBlank() }?.let {
+            TvCommand.AskClose(
+                id = orderId,
+                ask = it,
+                answer = answer.asText()?.takeIf { text -> text.isNotBlank() },
+                by = by?.takeIf { name -> name.isNotBlank() },
+            )
+        }
         // Question sans jeton ou sans réponse possible : inutilisable, ignorée.
         "ask" -> {
             val choices = answers.orEmpty().mapNotNull { it.asText()?.takeIf { text -> text.isNotBlank() } }

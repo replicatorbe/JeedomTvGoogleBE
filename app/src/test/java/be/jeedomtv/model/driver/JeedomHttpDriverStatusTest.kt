@@ -166,6 +166,40 @@ class JeedomHttpDriverStatusTest {
     }
 
     @Test
+    fun `ask_close - jeton obligatoire, reponse et TV facultatives`() = runBlocking {
+        server.enqueue(
+            json(
+                """{"since": 1, "commands": [
+                  {"id": 5, "type": "ask_close", "ask": "j1", "answer": "Ouvrir", "by": "TV salon"},
+                  {"id": 6, "type": "ask_close", "ask": "j2"},
+                  {"id": 7, "type": "ask_close", "answer": "Ouvrir"},
+                  {"id": 8, "type": "ask_close", "ask": "j3", "answer": "", "by": ""}
+                ]}""",
+            ),
+        )
+        assertEquals(
+            listOf(
+                TvCommand.AskClose(5, "j1", "Ouvrir", "TV salon"),
+                TvCommand.AskClose(6, "j2"),
+                TvCommand.AskClose(8, "j3"),
+            ),
+            driver().changes("0").commands,
+        )
+    }
+
+    @Test
+    fun `answer refusee en 409 - code transmis`() {
+        server.enqueue(MockResponse().setResponseCode(409).setHeader("Content-Type", "application/json").setBody("""{"error": "Question déjà répondue"}"""))
+        val e = try {
+            runBlocking { driver().answer("j1", "Ouvrir") }
+            null
+        } catch (e: JeedomException) {
+            e
+        }
+        assertEquals(409, e?.httpCode)
+    }
+
+    @Test
     fun `video - schemas acceptes seulement, ask video`() = runBlocking {
         assertTrue(VideoUrl.of("rtsp://camera.example/flux")!!.isRtsp)
         assertFalse(VideoUrl.of("https://exemple.example/live/index.m3u8")!!.isRtsp)
