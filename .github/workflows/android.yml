@@ -1,0 +1,44 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP 8.7 demande un JDK 17 (sourceCompatibility 17, pas de jvmToolchain).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # SDK Android déjà présent sur ubuntu-latest (ANDROID_HOME). La release est signée avec la
+      # clé debug, créée par AGP s'il n'y en a pas : aucun secret, aucun keystore.
+      - name: Tests unitaires et APK release
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease
+
+      - name: Rapports de tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapports-de-tests
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
