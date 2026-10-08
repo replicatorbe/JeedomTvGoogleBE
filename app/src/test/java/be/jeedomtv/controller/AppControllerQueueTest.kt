@@ -68,6 +68,42 @@ class AppControllerQueueTest {
     }
 
     @Test
+    fun `deux notifications de 8 s coup sur coup - 8 s puis 8 s, par-dessus la video`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = started(factory)
+        factory.send(note(1, "Test A", seconds = 8))
+        runCurrent()
+        factory.send(note(2, "Test B", seconds = 8))
+        runCurrent()
+        advanceTimeBy(7_900)
+        assertEquals("A reste toute sa durée", "Test A", c.overlayMessage)
+        advanceTimeBy(200)
+        assertEquals("Test B", c.overlayMessage)
+        advanceTimeBy(7_800)
+        assertEquals("B reste toute sa durée, comptée depuis son affichage", "Test B", c.overlayMessage)
+        advanceTimeBy(200)
+        assertEquals(Overlay.None, c.state.value.overlay)
+    }
+
+    @Test
+    fun `deux notifications de 8 s coup sur coup - 8 s puis 8 s, dans l'application`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = started(factory, visible = true)
+        factory.send(note(1, "Test A", seconds = 8))
+        runCurrent()
+        factory.send(note(2, "Test B", seconds = 8))
+        runCurrent()
+        advanceTimeBy(7_900)
+        assertEquals("Test A", c.appMessage)
+        advanceTimeBy(200)
+        assertEquals("Test B", c.appMessage)
+        advanceTimeBy(7_800)
+        assertEquals("Test B", c.appMessage)
+        advanceTimeBy(200)
+        assertNull(c.state.value.banner)
+    }
+
+    @Test
     fun `dans l'application - meme file`() = runTest {
         val factory = FakeDriverFactory()
         val c = started(factory, visible = true)
