@@ -21,7 +21,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -49,7 +52,8 @@ private const val RETRY_DELAY_MS = 5_000L
 /** Tentatives au plus : au-delà, l'image de repli reste (la TV n'a que deux décodeurs). */
 private const val MAX_ATTEMPTS = 3
 
-private enum class VideoStatus { Connecting, Playing, Failed }
+/** [Reconnecting] : le flux a joué puis s'est figé (mise en mémoire tampon) ; la dernière image reste. */
+private enum class VideoStatus { Connecting, Playing, Reconnecting, Failed }
 
 /**
  * Vidéo en direct (caméra RTSP, flux HLS), sans le son, pour un bandeau ou une question.
@@ -92,6 +96,19 @@ fun LiveVideo(
                     status = VideoStatus.Playing
                 }
 
+                // Flux gelé (réseau, caméra) : le badge « EN DIRECT » ne doit pas mentir.
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_BUFFERING && status == VideoStatus.Playing) status = VideoStatus.Reconnecting
+                    if (playbackState == Player.STATE_READY && status == VideoStatus.Reconnecting && player.isPlaying) status = VideoStatus.Playing
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying && status == VideoStatus.Reconnecting) status = VideoStatus.Playing
+                    if (!isPlaying && status == VideoStatus.Playing && player.playbackState == Player.STATE_BUFFERING) {
+                        status = VideoStatus.Reconnecting
+                    }
+                }
+
                 override fun onPlayerError(error: PlaybackException) {
                     // Le message d'erreur peut contenir l'URL : il n'est pas journalisé.
                     status = VideoStatus.Failed
@@ -124,7 +141,21 @@ fun LiveVideo(
 
         val playing = status == VideoStatus.Playing && player != null
         LaunchedEffect(playing) { onPlayingChange(playing) }
-        if (!playing) {
+        // Reconnexion : la dernière image reste à l'écran, avec une pilule discrète.
+        val reconnecting = status == VideoStatus.Reconnecting && player != null
+        if (reconnecting) {
+            Text(
+                "Reconnexion…",
+                color = Color.White,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(10.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50))
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            )
+        }
+        if (!playing && !reconnecting) {
             if (placeholder != null) {
                 Image(placeholder, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {
