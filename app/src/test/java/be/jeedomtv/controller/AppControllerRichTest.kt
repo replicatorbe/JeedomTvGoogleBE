@@ -116,11 +116,11 @@ class AppControllerRichTest {
             "écran des pages affiché : dessinée dans l'application, pas en fenêtre",
             statusWindowKind(AppState(status = status, uiVisible = true, screen = be.jeedomtv.model.Screen.Pages)),
         )
-        assertEquals(
-            "configuration affichée : la fenêtre passe par-dessus l'application",
-            Corner.BottomStart,
+        assertNull(
+            "configuration ou chargement affichés : pas de fenêtre par-dessus le formulaire",
             statusWindowKind(AppState(status = status, uiVisible = true, screen = be.jeedomtv.model.Screen.Setup)),
         )
+        assertNull(statusWindowKind(AppState(status = status, uiVisible = true, screen = be.jeedomtv.model.Screen.Loading)))
     }
 
     // --- Notifications riches --------------------------------------------------------------------
@@ -132,7 +132,7 @@ class AppControllerRichTest {
         factory.send(TvCommand.Notify(1, "Sonnette", "On sonne", tag = "sonnette", icon = "mdi:doorbell", iconColor = -1, corner = Corner.BottomEnd, video = camera))
         runCurrent()
         val banner = (c.state.value.overlay as Overlay.Notice).banner
-        assertEquals(Banner("Sonnette", "On sonne", tag = "sonnette", icon = "mdi:doorbell", iconColor = -1, corner = Corner.BottomEnd, video = camera, durationMs = 8_000), banner)
+        assertEquals(Banner("Sonnette", "On sonne", tag = "sonnette", icon = "mdi:doorbell", iconColor = -1, corner = Corner.BottomEnd, video = camera, durationMs = 8_000), banner.sansIdentite())
     }
 
     @Test

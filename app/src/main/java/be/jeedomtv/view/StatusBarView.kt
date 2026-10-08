@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -34,7 +35,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Corner
-import be.jeedomtv.model.Screen
 import be.jeedomtv.model.StatusBar
 import be.jeedomtv.model.StatusItem
 import be.jeedomtv.model.StatusShape
@@ -46,13 +46,13 @@ import java.util.Locale
 /**
  * Coin de la fenêtre de la barre d'état, ou null si elle ne doit pas être affichée : pas de
  * barre (ou rien à montrer), écran éteint, notre écran de veille affiché (il a son horloge), ou
- * écran des pages de l'application affiché : elle y est dessinée dans la rangée des onglets, à la
- * place du nom de la TV (dans un coin du bas, elle masquerait l'aide).
+ * application affichée, quel que soit l'écran : sur celui des pages, elle est dessinée dans la
+ * rangée des onglets ; sur la configuration ou le chargement, elle masquerait le formulaire.
  */
 fun statusWindowKind(state: AppState): Corner? {
     val status = state.status?.takeIf { it.visible } ?: return null
     if (state.dreaming || !state.screenOn) return null
-    if (state.uiVisible && state.screen == Screen.Pages) return null
+    if (state.uiVisible) return null
     return status.corner
 }
 
@@ -157,6 +157,7 @@ private fun StatusChip(item: StatusItem, style: StatusBarStyle) {
             Text(
                 item.text,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.widthIn(max = style.itemHeight * 5),
                 style = TextStyle(
                     color = Color(item.textColor),

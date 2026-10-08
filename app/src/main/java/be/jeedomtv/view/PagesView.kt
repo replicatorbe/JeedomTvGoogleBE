@@ -28,6 +28,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -134,7 +137,9 @@ private fun Header(state: AppState) {
         // La barre d'état prend la place du nom de la TV : en bas, elle masquerait l'aide.
         val status = state.status?.takeIf { it.visible }
         if (status != null) {
-            StatusBarView(status)
+            // Au plus ~45 % de la largeur : les onglets gardent leur place, le reste est coupé.
+            val maxWidth = LocalConfiguration.current.screenWidthDp.dp * 0.45f
+            Box(Modifier.widthIn(max = maxWidth).clipToBounds()) { StatusBarView(status) }
         } else {
             state.tvName?.let { Text(it, color = JeedomTvColors.TextMuted, fontSize = 16.sp, maxLines = 1) }
         }
