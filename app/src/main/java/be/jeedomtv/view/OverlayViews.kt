@@ -25,6 +25,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
@@ -48,13 +50,21 @@ private val PanelBackground = JeedomTvColors.Background.copy(alpha = 0.95f)
 
 /** Bandeau `notify` par-dessus la vidéo (fenêtre ni focusable ni tactile). */
 @Composable
-fun OverlayNoticeView(state: AppState, shown: Boolean = true) {
-    // Le dernier bandeau reste dessiné le temps du fondu de sortie, une fois retiré de l'état.
-    val current = (state.overlay as? Overlay.Notice)?.banner
+fun OverlayNoticeView(state: AppState, top: Boolean) {
+    // Seulement les notifications de son bord (haut ou bas) : la fenêtre de l'autre bord, en fondu
+    // de sortie, ne dessine jamais la suivante (ni ne lance un second lecteur vidéo).
+    val current = (state.overlay as? Overlay.Notice)?.banner?.takeIf { it.corner.isTop == top }
     var last by remember { mutableStateOf(current) }
     if (current != null) last = current
+    // Fondu terminé : plus rien n'est dessiné (ni animation, ni image en mémoire).
+    LaunchedEffect(current == null) {
+        if (current == null) {
+            delay(EXIT_FADE_MS + 50L)
+            last = null
+        }
+    }
     val banner = last ?: return
-    val alpha by animateFloatAsState(if (shown && current != null) 1f else 0f, tween(EXIT_FADE_MS), label = "sortie")
+    val alpha by animateFloatAsState(if (current != null) 1f else 0f, tween(EXIT_FADE_MS), label = "sortie")
     // Coin demandé par la notification (`corner`) ; la fenêtre est en haut ou en bas de l'écran.
     val alignment = if (banner.corner.isStart) Alignment.TopStart else Alignment.TopEnd
     // Marges : la carte à ~24 dp des bords ; un peu de place autour pour son ombre portée.
@@ -62,7 +72,12 @@ fun OverlayNoticeView(state: AppState, shown: Boolean = true) {
         Modifier.fillMaxWidth().graphicsLayer { this.alpha = alpha }.padding(horizontal = 24.dp, vertical = 12.dp),
         contentAlignment = alignment,
     ) {
-        NotificationView(banner, videoAllowed = bannerVideoAllowed(state))
+        // En fondu de sortie, sans vidéo : le décodeur est rendu aussitôt.
+        NotificationView(
+            banner,
+            videoAllowed = current != null && bannerVideoAllowed(state),
+            waiting = if (current != null) state.waitingNotifications else 0,
+        )
     }
 }
 
@@ -102,7 +117,8 @@ fun OverlayPanelView(state: AppState) {
         }
         if (state.header.isNotEmpty()) InfoHeader(state.header, Modifier.fillMaxWidth().padding(horizontal = 8.dp), compact = true)
         state.banner?.let { banner ->
-            PanelLine(listOf(banner.title, banner.message).filter { it.isNotBlank() }.joinToString(" · "), Color.White.copy(alpha = 0.08f), maxLines = 2)
+            val waiting = state.waitingNotifications.takeIf { it > 0 }?.let { "  (+$it)" }.orEmpty()
+            PanelLine(listOf(banner.title, banner.message).filter { it.isNotBlank() }.joinToString(" · ") + waiting, Color.White.copy(alpha = 0.08f), maxLines = 2)
         }
         // Ordre refusé, Jeedom injoignable : sans ce message, un interrupteur revenu à son état
         // d'avant ne disait pas pourquoi.
@@ -114,6 +130,7 @@ fun OverlayPanelView(state: AppState) {
         val choiceTile = state.choiceTile
         val choice = state.choice
         // Réglage, choix ou confirmation à la place de la grille, à la même hauteur : rien ne saute.
+        // Hauteur minimale seulement : une confirmation plus haute garde ses pilules OK / Retour visibles.
         val modalHeight = PanelTileHeight * 2 + 14.dp + 16.dp
         when {
             confirm != null -> PanelSlot(modalHeight) { ConfirmDialog(confirm) }
@@ -140,7 +157,7 @@ private val PanelGradient = Brush.verticalGradient(
 
 @Composable
 private fun PanelSlot(height: Dp, content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxWidth().height(height), contentAlignment = Alignment.Center) { content() }
+    Box(Modifier.fillMaxWidth().heightIn(min = height), contentAlignment = Alignment.Center) { content() }
 }
 
 /** Ligne de message dans le panneau (bandeau d'un `notify`, erreur). */

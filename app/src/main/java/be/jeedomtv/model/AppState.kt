@@ -55,6 +55,19 @@ data class Banner(
     val video: VideoUrl? = null,
     /** Durée d'affichage (ms), pour la barre de temps restant de la carte ; 0 si inconnue. */
     val durationMs: Long = 0,
+    /**
+     * Identité stable, attribuée à la réception de l'ordre : la carte garde son animation, sa
+     * barre et sa vidéo quand l'image arrive ou qu'elle change de surface (0 : sans identité).
+     */
+    val id: Long = 0,
+    /**
+     * Fin d'affichage, sur l'horloge `elapsedRealtime` (posée à l'affichage réel) : la barre et le
+     * minuteur en déduisent le temps restant, aussi après un passage de l'application à la
+     * superposition. 0 tant qu'elle n'est pas affichée.
+     */
+    val endsAtMs: Long = 0,
+    /** Le téléchargement de l'image a échoué : la carte texte remplace la carte média. */
+    val imageFailed: Boolean = false,
 )
 
 /**
@@ -99,8 +112,11 @@ data class Question(
     val message: String,
     val answers: List<String>,
     val timeoutSec: Int,
-    /** Secondes restantes avant la fermeture automatique (compte à rebours affiché). */
-    val remainingSec: Int,
+    /**
+     * Fermeture automatique, sur l'horloge `elapsedRealtime` : la vue en déduit le compte à
+     * rebours (l'état ne change pas chaque seconde, rien n'est recomposé pour autant).
+     */
+    val deadlineMs: Long,
     /** Index de la réponse sélectionnée ; la première par défaut. */
     val selected: Int = 0,
     val status: QuestionStatus = QuestionStatus.Choosing,
@@ -164,6 +180,8 @@ data class AppState(
     val screenOn: Boolean = true,
     /** Bandeau `notify` affiché quelques secondes. */
     val banner: Banner? = null,
+    /** Notifications en attente derrière celle affichée (badge « +N » sur la carte). */
+    val waitingNotifications: Int = 0,
     /** Demande de passage en arrière-plan (ordre `exit`) ; la vue l'exécute puis acquitte. */
     val exitRequested: Boolean = false,
     /** Un ordre `show` veut afficher l'application alors qu'elle est en arrière-plan. */

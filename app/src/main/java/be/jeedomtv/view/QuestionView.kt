@@ -1,7 +1,6 @@
 package be.jeedomtv.view
 
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -32,6 +31,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.Animatable
+import android.os.SystemClock
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
@@ -48,8 +52,12 @@ import be.jeedomtv.model.QuestionStatus
 /** Coins de la photo ou de la vidéo dans la carte. */
 private val MediaShape = RoundedCornerShape(12.dp)
 
-/** Plus grand côté visé au décodage de la photo jointe. */
-private const val PHOTO_MAX_PX = 1280
+/**
+ * Taille visée au décodage de la photo jointe : cadre 16:9 de la moitié de la carte (≤ 480 dp de
+ * haut, ≈ 1280 × 720 px au plus). Aux proportions du cadre, pas un carré (voir [sampleSizeFor]).
+ */
+internal const val PHOTO_WIDTH_PX = 1280
+internal const val PHOTO_HEIGHT_PX = 720
 
 /** Icône des questions (le contrat n'en transmet pas). */
 private const val QUESTION_ICON = "mdi:help-circle-outline"
@@ -67,7 +75,7 @@ private val FailedRed = Color(0xFFF28B82)
 @Composable
 fun QuestionDialog(question: Question, modifier: Modifier = Modifier) {
     // Photo jointe (portier…) : décodée à la taille utile, hors du thread principal.
-    val photo by rememberDecodedImage(question.imageBytes, maxWidth = PHOTO_MAX_PX, maxHeight = PHOTO_MAX_PX)
+    val photo by rememberDecodedImage(question.imageBytes, maxWidth = PHOTO_WIDTH_PX, maxHeight = PHOTO_HEIGHT_PX)
     val image = photo
     // Vidéo en direct tant qu'on choisit : dès la réponse envoyée, le lecteur est libéré.
     val video = question.video?.takeIf { question.status == QuestionStatus.Choosing }
@@ -163,18 +171,16 @@ fun QuestionBanner(question: Question, modifier: Modifier = Modifier) {
     ) {
         QuestionHeader(question, large = false)
         when (val status = question.status) {
-            // Réponses à gauche ; compte à rebours et rappel des touches à droite : peu de hauteur.
-            QuestionStatus.Choosing, QuestionStatus.Sending -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { Answers(question, large = false) }
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.width(190.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (status == QuestionStatus.Choosing) {
-                        Countdown(question)
-                        Text(questionHelpText(question), color = CardTextMuted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 2)
-                    } else {
-                        Text("Envoi de la réponse…", color = CardTextMuted, fontSize = 14.sp)
-                    }
-                }
+            // Réponses sur toute la largeur (deux rangées s'il le faut, jamais rognées), puis le
+            // compte à rebours et le rappel des touches en dessous.
+            QuestionStatus.Choosing -> {
+                Answers(question, large = false)
+                Countdown(question)
+                Text(questionHelpText(question), color = CardTextMuted, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            QuestionStatus.Sending -> {
+                Answers(question, large = false)
+                Text("Envoi de la réponse…", color = CardTextMuted, fontSize = 15.sp)
             }
             is QuestionStatus.Sent -> Result("mdi:check-circle-outline", SentGreen, "Réponse envoyée : ${status.answer}", large = false)
             is QuestionStatus.Failed -> Result("mdi:alert-circle-outline", FailedRed, status.message, large = false)
@@ -291,12 +297,33 @@ private fun Answers(question: Question, large: Boolean) {
 
 private val PillShape = RoundedCornerShape(50)
 
-/** Fine barre qui se vide en continu jusqu'à la fermeture, avec les secondes restantes. */
+/** Secondes restantes jusqu'à [deadlineMs] (horloge `elapsedRealtime`), arrondies au-dessus. */
+internal fun remainingSeconds(deadlineMs: Long, nowMs: Long): Int =
+    ((deadlineMs - nowMs + 999) / 1000).toInt().coerceAtLeast(0)
+
+/**
+ * Fine barre qui se vide en continu jusqu'à la fermeture, avec les secondes restantes. Déduite de
+ * l'échéance : seule cette ligne se redessine chaque seconde, pas toute la question.
+ */
 @Composable
 private fun Countdown(question: Question) {
-    // Vise la valeur de la seconde suivante : la barre descend sans à-coups entre deux ticks.
-    val target = ((question.remainingSec - 1).coerceAtLeast(0).toFloat() / question.timeoutSec).coerceIn(0f, 1f)
-    val fraction by animateFloatAsState(target, tween(1_000, easing = LinearEasing), label = "compte à rebours")
+    val timeoutMs = question.timeoutSec * 1000f
+    val fraction = remember(question.ask) {
+        Animatable(((question.deadlineMs - SystemClock.elapsedRealtime()) / timeoutMs).coerceIn(0f, 1f))
+    }
+    LaunchedEffect(question.ask) {
+        val left = (question.deadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+        fraction.animateTo(0f, tween(left.toInt(), easing = LinearEasing))
+    }
+    var seconds by remember(question.ask) { mutableIntStateOf(remainingSeconds(question.deadlineMs, SystemClock.elapsedRealtime())) }
+    LaunchedEffect(question.ask) {
+        while (seconds > 0) {
+            val now = SystemClock.elapsedRealtime()
+            delay(((question.deadlineMs - now) % 1000).let { if (it <= 0) 1000 else it } + 10)
+            seconds = remainingSeconds(question.deadlineMs, SystemClock.elapsedRealtime())
+        }
+    }
+    val urgent = seconds <= 5
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -307,12 +334,12 @@ private fun Countdown(question: Question) {
                 val radius = CornerRadius(size.height / 2)
                 drawRoundRect(Color.White.copy(alpha = 0.12f), cornerRadius = radius)
                 drawRoundRect(
-                    if (question.remainingSec <= 5) FailedRed else SoftBlue,
-                    size = Size(size.width * fraction, size.height),
+                    if (urgent) FailedRed else SoftBlue,
+                    size = Size(size.width * fraction.value, size.height),
                     cornerRadius = radius,
                 )
             }
         }
-        Text("${question.remainingSec} s", color = CardTextMuted, fontSize = 14.sp)
+        Text("$seconds s", color = CardTextMuted, fontSize = 14.sp)
     }
 }

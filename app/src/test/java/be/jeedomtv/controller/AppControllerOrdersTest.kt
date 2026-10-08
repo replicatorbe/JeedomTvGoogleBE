@@ -356,7 +356,7 @@ class AppControllerOrdersTest {
         c.onUiVisibilityChanged(true)
         factory.send(TvCommand.Notify(2, "", "Lave-linge terminé"))
         runCurrent()
-        assertEquals(Banner("", "Lave-linge terminé", durationMs = 8_000), c.state.value.banner)
+        assertEquals(Banner("", "Lave-linge terminé", durationMs = 8_000), c.state.value.banner.sansIdentite())
         advanceTimeBy(7_900)
         assertTrue(c.state.value.banner != null)
         advanceTimeBy(200)
@@ -369,7 +369,7 @@ class AppControllerOrdersTest {
         val c = started(factory)
         factory.send(TvCommand.Show(1, "p2", durationSec = 20), TvCommand.Notify(2, "Sonnette", "Quelqu'un sonne"))
         runCurrent()
-        assertEquals(Banner("Sonnette", "Quelqu'un sonne", durationMs = 8_000), c.state.value.banner)
+        assertEquals(Banner("Sonnette", "Quelqu'un sonne", durationMs = 8_000), c.state.value.banner.sansIdentite())
     }
 
     // --- État signalé à Jeedom -----------------------------------------------------------------

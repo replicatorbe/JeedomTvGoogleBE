@@ -21,4 +21,14 @@ class ImageDecodingTest {
     fun `vignette - forte reduction`() {
         assertEquals(8, sampleSizeFor(2560, 1440, 320, 180))
     }
+
+    @Test
+    fun `photo 1920x1080 pour une carte - decodee a 960 de large`() {
+        val sample = sampleSizeFor(1920, 1080, CARD_IMAGE_WIDTH_PX, CARD_IMAGE_HEIGHT_PX)
+        assertEquals(2, sample)
+        assertEquals(960, 1920 / sample)
+        // Même photo pour la question : 1280 × 720 visés, la photo reste nette (pas sous la cible).
+        assertEquals(1, sampleSizeFor(1920, 1080, PHOTO_WIDTH_PX, PHOTO_HEIGHT_PX))
+        assertEquals(2, sampleSizeFor(2560, 1440, PHOTO_WIDTH_PX, PHOTO_HEIGHT_PX))
+    }
 }

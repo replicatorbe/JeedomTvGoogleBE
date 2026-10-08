@@ -87,7 +87,13 @@ class AppController(
      * Notifications en attente pendant qu'une autre est affichée (3 au plus, la plus ancienne
      * abandonnée au-delà). Hors de l'état : une vidéo en attente n'occupe aucun décodeur.
      */
-    private val pendingNotifications = ArrayDeque<Banner>()
+    private val pendingNotifications = ArrayDeque<PendingNotification>()
+
+    /** Dernière identité de notification attribuée ([Banner.id]). */
+    private var lastBannerId = 0L
+
+    /** Notification dont l'image est en cours de téléchargement ([Banner.id]). */
+    private var bannerImageFor = 0L
 
     /** Efface la coche de confirmation d'une tuile. */
     private var confirmTimer: Job? = null
@@ -189,10 +195,10 @@ class AppController(
     /** L'écran de l'application devient visible ou passe derrière une autre application. */
     fun onUiVisibilityChanged(visible: Boolean) {
         update { it.copy(uiVisible = visible, foregroundRequested = it.foregroundRequested && !visible) }
-        // L'application complète est affichée : la superposition n'a plus lieu d'être.
-        if (visible && state.value.overlay != Overlay.None) dismissOverlay(restoreSelection = false)
-        // Bandeau en superposition retiré : la notification suivante en attente, dans l'application.
-        if (visible) pumpNotifications()
+        // L'application complète est affichée : le panneau n'a plus lieu d'être.
+        if (visible && state.value.overlay is Overlay.Panel) dismissOverlay(restoreSelection = false)
+        // La notification affichée suit l'écran (application ou superposition), avec son temps restant.
+        relocateNotification()
         // Une question suit l'écran : dans l'application si elle est affichée, sinon par-dessus.
         val question = state.value.question
         if (question != null) {
@@ -551,21 +557,27 @@ class AppController(
             corner = command.corner,
             video = command.video,
             durationMs = durationMs,
+            id = ++lastBannerId,
         )
         val shown = displayedBanner()
         when {
             shown == null -> {
                 if (!displayNotification(banner)) pumpNotifications()
             }
-            banner.tag != null && shown.tag == banner.tag -> displayNotification(banner)
+            banner.tag != null && shown.tag == banner.tag -> {
+                clearDisplayedNotification()
+                if (!displayNotification(banner)) pumpNotifications()
+            }
             else -> {
-                val index = pendingNotifications.indexOfFirst { banner.tag != null && it.tag == banner.tag }
+                val waiting = PendingNotification(banner, elapsedMs())
+                val index = pendingNotifications.indexOfFirst { banner.tag != null && it.banner.tag == banner.tag }
                 if (index >= 0) {
-                    pendingNotifications[index] = banner
+                    pendingNotifications[index] = waiting
                 } else {
-                    pendingNotifications.addLast(banner)
+                    pendingNotifications.addLast(waiting)
                     while (pendingNotifications.size > MAX_PENDING_NOTIFICATIONS) pendingNotifications.removeFirst()
                 }
+                syncWaitingCount()
             }
         }
     }
@@ -574,44 +586,103 @@ class AppController(
     private fun displayedBanner(): Banner? =
         state.value.banner ?: (state.value.overlay as? Overlay.Notice)?.banner
 
-    /** Affiche la suivante en attente, si rien n'est affiché. */
+    /**
+     * Affiche la suivante en attente, si rien n'est affiché et qu'elle peut s'afficher quelque
+     * part (sinon la file attend). Celle qui a attendu plus longtemps que sa propre durée, et plus
+     * de [PENDING_STALE_MIN_MS], est périmée (« Le linge est sec » derrière une annonce de 2 min) :
+     * abandonnée. Le plancher garde la file normale : deux notifications de 8 s coup sur coup
+     * s'affichent bien l'une après l'autre.
+     */
     private fun pumpNotifications() {
         while (displayedBanner() == null && pendingNotifications.isNotEmpty()) {
-            if (displayNotification(pendingNotifications.removeFirst())) return
+            if (notificationSurface(state.value) == null) break
+            val next = pendingNotifications.removeFirst()
+            val waited = elapsedMs() - next.receivedAt
+            if (waited > maxOf(next.banner.durationMs, PENDING_STALE_MIN_MS)) continue
+            if (displayNotification(next.banner)) break
         }
+        syncWaitingCount()
+    }
+
+    private fun syncWaitingCount() {
+        val count = pendingNotifications.size
+        if (state.value.waitingNotifications != count) update { it.copy(waitingNotifications = count) }
+    }
+
+    /** Où une notification s'affiche maintenant, ou null si nulle part. */
+    private fun notificationSurface(s: AppState): NotificationSurface? = when {
+        // Quelqu'un regarde l'application, ou va la regarder : un `show` qui la ramène au premier
+        // plan peut précéder le message dans la même réponse.
+        s.uiVisible || s.foregroundRequested -> NotificationSurface.App
+        // Le panneau affiche le bandeau en son sein (une ligne de texte).
+        s.overlay is Overlay.Panel -> NotificationSurface.Panel
+        // Bandeau en superposition, sans focus : la vidéo ne remarque rien.
+        overlayPermission.granted() -> NotificationSurface.Overlay
+        else -> null
     }
 
     /**
-     * Bandeau de quelques secondes, seulement si quelqu'un regarde l'application, ou va la
-     * regarder : un `show` qui la ramène au premier plan peut précéder le message dans la même
-     * réponse. Retourne false s'il ne peut pas s'afficher (application cachée, sans permission).
+     * Affiche [banner] pour sa durée, comptée depuis cet affichage réel (ou pour ce qu'il lui
+     * reste, s'il change de surface). Retourne false s'il ne peut pas s'afficher (application
+     * cachée sans permission, ou temps écoulé).
      */
     private fun displayNotification(banner: Banner): Boolean {
-        val current = state.value
-        if (!current.uiVisible && !current.foregroundRequested) {
-            when {
-                // Le panneau affiche le bandeau en son sein.
-                current.overlay is Overlay.Panel -> Unit
-                // Bandeau en superposition, sans focus : la vidéo ne remarque rien.
-                overlayPermission.granted() -> {
-                    showNoticeOverlay(banner, banner.durationMs)
-                    loadBannerImage(banner)
-                    return true
-                }
-                else -> return false
-            }
+        val now = elapsedMs()
+        val shown = if (banner.endsAtMs == 0L) banner.copy(endsAtMs = now + banner.durationMs) else banner
+        val remaining = shown.endsAtMs - now
+        if (remaining <= 0) return false
+        val surface = notificationSurface(state.value) ?: return false
+        if (surface == NotificationSurface.Overlay) {
+            update { it.copy(overlay = Overlay.Notice(shown), banner = null) }
+        } else {
+            update { it.copy(banner = shown) }
         }
-        update { it.copy(banner = banner) }
-        loadBannerImage(banner)
+        // Le panneau n'affiche que le texte : pas de téléchargement pour rien.
+        if (surface != NotificationSurface.Panel) loadBannerImage(shown)
         bannerTimer?.cancel()
         bannerTimer = scope.launch {
-            delay(banner.durationMs)
+            delay(remaining)
             bannerTimer = null
-            bannerImageJob?.cancel()
-            update { it.copy(banner = null) }
+            clearDisplayedNotification()
             pumpNotifications()
         }
         return true
+    }
+
+    /** Retire la notification affichée, où qu'elle soit (sans afficher la suivante). */
+    private fun clearDisplayedNotification() {
+        bannerTimer?.cancel()
+        bannerTimer = null
+        bannerImageJob?.cancel()
+        bannerImageJob = null
+        update { it.copy(banner = null, overlay = if (it.overlay is Overlay.Notice) Overlay.None else it.overlay) }
+    }
+
+    /**
+     * L'application passe devant ou derrière, le panneau s'ouvre ou se ferme : la notification
+     * affichée suit, avec le temps qu'il lui reste (une sonnette dans l'application cachée ne doit
+     * pas bloquer la file, invisible), ou disparaît si elle ne peut plus s'afficher nulle part.
+     */
+    private fun relocateNotification() {
+        val current = state.value
+        val shown = displayedBanner()
+        if (shown == null) {
+            pumpNotifications()
+            return
+        }
+        val surface = notificationSurface(current)
+        val inOverlay = current.overlay is Overlay.Notice
+        val inPlace = when (surface) {
+            NotificationSurface.Overlay -> inOverlay
+            NotificationSurface.App, NotificationSurface.Panel -> !inOverlay
+            null -> false
+        }
+        if (inPlace) {
+            if (surface != NotificationSurface.Panel) loadBannerImage(shown)
+            return
+        }
+        clearDisplayedNotification()
+        if (!displayNotification(shown)) pumpNotifications()
     }
 
     /**
@@ -619,15 +690,8 @@ class AppController(
      * l'application ou par-dessus) ; la suivante en attente prend sa place.
      */
     private fun dismissNotification(target: String) {
-        pendingNotifications.removeAll { it.tag == target }
-        val current = state.value
-        if (current.banner?.tag == target) {
-            bannerTimer?.cancel()
-            bannerTimer = null
-            bannerImageJob?.cancel()
-            update { it.copy(banner = null) }
-        }
-        if ((current.overlay as? Overlay.Notice)?.banner?.tag == target) dismissOverlay(restoreSelection = false)
+        pendingNotifications.removeAll { it.banner.tag == target }
+        if (displayedBanner()?.tag == target) clearDisplayedNotification()
         pumpNotifications()
     }
 
@@ -642,7 +706,7 @@ class AppController(
      * Télécharge une image pendant que l'ordre est déjà affiché ; [apply] la pose une fois prête.
      * Un échec laisse simplement l'affichage sans image, sans message.
      */
-    private fun loadImage(id: String, apply: (ByteArray) -> Unit): Job? {
+    private fun loadImage(id: String, onFailure: () -> Unit = {}, apply: (ByteArray) -> Unit): Job? {
         val target = driver ?: return null
         return scope.launch {
             val bytes = try {
@@ -650,28 +714,37 @@ class AppController(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                onFailure()
                 return@launch
             }
             apply(bytes)
         }
     }
 
-    /** Image du bandeau [banner] : posée seulement s'il est toujours affiché. */
+    /**
+     * Image du bandeau [banner] : posée seulement s'il est toujours affiché (par son identité).
+     * Un échec le fait revenir à la carte texte. Rien à faire si elle est déjà là ou en cours.
+     */
     private fun loadBannerImage(banner: Banner) {
+        val id = banner.image ?: return
+        if (banner.imageBytes != null || banner.imageFailed) return
+        if (bannerImageFor == banner.id && bannerImageJob?.isActive == true) return
         bannerImageJob?.cancel()
-        val id = banner.image ?: run {
-            bannerImageJob = null
-            return
-        }
-        bannerImageJob = loadImage(id) { bytes ->
-            update { s ->
-                val notice = s.overlay as? Overlay.Notice
-                s.copy(
-                    banner = s.banner?.takeIf { it === banner }?.copy(imageBytes = bytes) ?: s.banner,
-                    overlay = notice?.takeIf { it.banner === banner }
-                        ?.let { Overlay.Notice(it.banner.copy(imageBytes = bytes)) } ?: s.overlay,
-                )
-            }
+        bannerImageFor = banner.id
+        bannerImageJob = loadImage(
+            id,
+            onFailure = { updateDisplayedBanner(banner.id) { it.copy(imageFailed = true) } },
+        ) { bytes -> updateDisplayedBanner(banner.id) { it.copy(imageBytes = bytes) } }
+    }
+
+    /** Modifie la notification affichée d'identité [id], où qu'elle soit ; sinon rien. */
+    private fun updateDisplayedBanner(id: Long, transform: (Banner) -> Banner) {
+        update { s ->
+            val notice = s.overlay as? Overlay.Notice
+            s.copy(
+                banner = s.banner?.let { if (it.id == id) transform(it) else it },
+                overlay = if (notice != null && notice.banner.id == id) Overlay.Notice(transform(notice.banner)) else s.overlay,
+            )
         }
     }
 
@@ -697,20 +770,6 @@ class AppController(
 
     // --- Superposition ------------------------------------------------------------------------
 
-    /** Bandeau par-dessus la vidéo ; un nouvel ordre remplace la superposition courante. */
-    private fun showNoticeOverlay(banner: Banner, durationMs: Long) {
-        if (state.value.overlay is Overlay.Panel) dismissOverlay(restoreSelection = true)
-        bannerImageJob?.cancel()
-        update { it.copy(overlay = Overlay.Notice(banner)) }
-        overlayTimer?.cancel()
-        overlayTimer = scope.launch {
-            delay(durationMs)
-            overlayTimer = null
-            dismissOverlay(restoreSelection = false)
-            pumpNotifications()
-        }
-    }
-
     /** Panneau par-dessus la vidéo, sur la page [index] ; il remplace la superposition courante. */
     private fun openPanel(index: Int, command: TvCommand.Show) {
         cancelAutoReturn()
@@ -725,11 +784,12 @@ class AppController(
                 choice = null,
                 confirm = null,
                 overlay = Overlay.Panel(command.page, command.durationSec),
+                // Bandeau en superposition : il passe dans le panneau, avec son temps restant.
+                banner = (it.overlay as? Overlay.Notice)?.banner ?: it.banner,
             )
         }
         if (command.durationSec > 0) restartOverlayTimer(command.durationSec * 1000L) else restartPanelIdleTimer()
-        // Un bandeau remplacé par le panneau laisse sa place : la suivante en attente s'y affiche.
-        pumpNotifications()
+        relocateNotification()
     }
 
     /**
@@ -763,7 +823,12 @@ class AppController(
     private fun dismissOverlay(restoreSelection: Boolean) {
         overlayTimer?.cancel()
         overlayTimer = null
-        if (state.value.overlay is Overlay.Notice) bannerImageJob?.cancel()
+        val closing = state.value.overlay
+        if (closing is Overlay.Notice) {
+            clearDisplayedNotification()
+            pumpNotifications()
+            return
+        }
         val back = panelReturn
         panelReturn = null
         update { s ->
@@ -783,6 +848,8 @@ class AppController(
             }
             restored.copy(overlay = Overlay.None, panelClosing = false)
         }
+        // Panneau fermé, application cachée : sa notification passe en superposition.
+        if (closing is Overlay.Panel) relocateNotification()
     }
 
     /**
@@ -849,6 +916,7 @@ class AppController(
                 foregroundRequested = !it.uiVisible,
             )
         }
+        relocateNotification()
     }
 
     // --- Questions de Jeedom -----------------------------------------------------------------
@@ -883,7 +951,7 @@ class AppController(
                     message = command.message,
                     answers = command.answers,
                     timeoutSec = timeout,
-                    remainingSec = timeout,
+                    deadlineMs = elapsedMs() + timeout * 1000L,
                     inOverlay = inOverlay,
                     image = command.image,
                     video = command.video,
@@ -896,22 +964,18 @@ class AppController(
         startQuestionCountdown()
     }
 
-    /** Une seconde de moins à chaque tick ; à zéro, la question se ferme sans réponse. */
+    /**
+     * À l'échéance, la question se ferme sans réponse. Le compte à rebours affiché se déduit de
+     * [Question.deadlineMs] dans la vue : l'état ne change pas chaque seconde.
+     */
     private fun startQuestionCountdown() {
         questionTicker?.cancel()
+        val question = state.value.question ?: return
         questionTicker = scope.launch {
-            while (true) {
-                delay(1_000)
-                val question = state.value.question ?: return@launch
-                if (question.status != QuestionStatus.Choosing) return@launch
-                val remaining = question.remainingSec - 1
-                if (remaining <= 0) {
-                    questionTicker = null
-                    closeQuestion()
-                    return@launch
-                }
-                update { it.copy(question = it.question?.copy(remainingSec = remaining)) }
-            }
+            delay((question.deadlineMs - elapsedMs()).coerceAtLeast(0))
+            questionTicker = null
+            val current = state.value.question
+            if (current?.ask == question.ask && current.status == QuestionStatus.Choosing) closeQuestion()
         }
     }
 
@@ -969,7 +1033,9 @@ class AppController(
             } catch (e: Exception) {
                 QuestionStatus.Failed(ANSWER_ERROR)
             }
-            if (state.value.question?.ask != question.ask) return@launch // Remplacée ou fermée.
+            // Remplacée, fermée, ou fermée par `ask_close` pendant l'envoi : son message reste.
+            val current = state.value.question
+            if (current?.ask != question.ask || current.status != QuestionStatus.Sending) return@launch
             update { it.copy(question = it.question?.copy(status = status)) }
             questionResultTimer = scope.launch {
                 delay(QUESTION_RESULT_MS)
@@ -1454,6 +1520,15 @@ class AppController(
 
         /** Notifications en attente au plus (la plus ancienne est abandonnée au-delà). */
         const val MAX_PENDING_NOTIFICATIONS = 3
+
+        /** Attente au-delà de laquelle une notification en file est périmée (au moins sa durée). */
+        const val PENDING_STALE_MIN_MS = 30_000L
+
+        /** Surfaces où une notification peut s'afficher. */
+        private enum class NotificationSurface { App, Panel, Overlay }
+
+        /** Notification en attente, et son heure d'arrivée ([elapsedMs]) pour l'expiration. */
+        private data class PendingNotification(val banner: Banner, val receivedAt: Long)
 
         /** Coche de confirmation d'un ordre sur une tuile. */
         const val CONFIRM_DURATION_MS = 1_000L

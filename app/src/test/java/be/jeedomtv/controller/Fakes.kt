@@ -145,3 +145,10 @@ fun contractLayout(revision: String = "9f2c1a") = Layout(
         Page("p3", "Garage", listOf(Tile("g1", TileType.Info, "Porte", TileIcon.Lock, value = "1"))),
     ),
 )
+
+/** Notification comparée sans son identité ni son échéance (attribuées par le contrôleur). */
+fun be.jeedomtv.model.Banner?.sansIdentite(): be.jeedomtv.model.Banner? = this?.copy(id = 0, endsAtMs = 0)
+
+/** Superposition comparée sans l'identité ni l'échéance de sa notification. */
+fun be.jeedomtv.model.Overlay.sansIdentite(): be.jeedomtv.model.Overlay =
+    if (this is be.jeedomtv.model.Overlay.Notice) be.jeedomtv.model.Overlay.Notice(banner.copy(id = 0, endsAtMs = 0)) else this

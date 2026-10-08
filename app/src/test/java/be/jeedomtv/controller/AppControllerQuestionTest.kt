@@ -76,7 +76,7 @@ class AppControllerQuestionTest {
         assertEquals("Sonnette", q.title)
         assertEquals(listOf("Ouvrir", "Ignorer"), q.answers)
         assertEquals(0, q.selected)
-        assertEquals(30, q.remainingSec)
+        assertEquals(30, q.timeoutSec)
         assertEquals(QuestionStatus.Choosing, q.status)
         assertFalse(q.inOverlay)
         assertFalse(c.state.value.foregroundRequested)
@@ -248,11 +248,10 @@ class AppControllerQuestionTest {
         factory.send(portail(timeout = 10))
         runCurrent()
         advanceTimeBy(4_100)
-        assertEquals(6, c.question!!.remainingSec)
         c.press(Right, Left)
-        advanceTimeBy(5_000)
-        assertEquals(1, c.question!!.remainingSec)
-        advanceTimeBy(1_000)
+        advanceTimeBy(5_800)
+        assertTrue("encore ouverte juste avant l'échéance", c.question != null)
+        advanceTimeBy(200)
         assertNull(c.question)
         assertTrue(factory.answers.isEmpty())
     }
@@ -263,7 +262,7 @@ class AppControllerQuestionTest {
         val c = started(factory)
         factory.send(portail(timeout = 0))
         runCurrent()
-        assertEquals(60, c.question!!.remainingSec)
+        assertEquals(60, c.question!!.timeoutSec)
     }
 
     @Test
@@ -279,7 +278,7 @@ class AppControllerQuestionTest {
         val q = c.question!!
         assertEquals("b", q.ask)
         assertEquals(0, q.selected)
-        assertEquals(20, q.remainingSec)
+        assertEquals(20, q.timeoutSec)
         advanceTimeBy(10_100)
         assertTrue("l'ancien délai ne ferme pas la nouvelle", c.question != null)
     }

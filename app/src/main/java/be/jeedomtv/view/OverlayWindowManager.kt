@@ -11,17 +11,13 @@ import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
@@ -41,7 +37,6 @@ import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Corner
 import be.jeedomtv.model.Overlay
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -64,10 +59,14 @@ class OverlayWindowManager(
 ) {
     private val windowManager = context.getSystemService(WindowManager::class.java)
 
-    private var notice: OverlayWindow? = null
+    /** Fenêtres des notifications, une par bord (haut, bas) : créées une fois, puis gardées. */
+    private val notices = HashMap<Boolean, OverlayWindow>()
     private var panel: OverlayWindow? = null
     private var question: OverlayWindow? = null
     private var statusBar: OverlayWindow? = null
+
+    /** Écran de la TV allumé : sinon, les fenêtres passent en CREATED (lecteurs vidéo libérés). */
+    private var screenOn = true
 
     fun start() {
         scope.launch {
@@ -88,7 +87,18 @@ class OverlayWindowManager(
                 .distinctUntilChanged()
                 .collect { showQuestion(it) }
         }
+        scope.launch {
+            controller.state
+                .map { it.screenOn }
+                .distinctUntilChanged()
+                .collect { on ->
+                    screenOn = on
+                    allWindows().forEach { it.owner.setActive(on) }
+                }
+        }
     }
+
+    private fun allWindows(): List<OverlayWindow> = notices.values + listOfNotNull(panel, question, statusBar)
 
     /** Fenêtre de question (et sa mise en page) affichée. */
     private var questionKind = QuestionWindowKind.None
@@ -101,39 +111,39 @@ class OverlayWindowManager(
         if (kind != QuestionWindowKind.None) question = add(questionWindow(kind))
     }
 
-    /** Une fenêtre ajoutée passe au-dessus : la question y est remise, avec le focus. */
+    /**
+     * Une fenêtre ajoutée passe au-dessus : la question y est remise, avec le focus. Seulement
+     * quand c'est nécessaire (panneau focusable, ou première fenêtre d'un bord) : recréée, sa vidéo
+     * se reconnecterait.
+     */
     private fun keepQuestionOnTop() {
         val current = question ?: return
         remove(current)
         question = add(questionWindow(questionKind))
     }
 
-    /** Barre d'état : fenêtre ajoutée ou retirée (et recréée si elle change de coin). */
+    /**
+     * Barre d'état : fenêtre ajoutée une fois, puis gardée ; masquée par son contenu (vide), et
+     * déplacée sur place quand elle change de coin. Elle n'est donc jamais ajoutée par-dessus les
+     * autres fenêtres, qui n'ont pas à être recréées.
+     */
     private fun showStatusBar(corner: Corner?) {
         Log.i(TAG, "barre d'état : ${corner ?: "masquée"}")
-        statusBar = statusBar?.let { remove(it); null }
         if (corner == null) return
-        statusBar = add(statusWindow(corner))
-        // Ajoutée en dernier, elle passerait au-dessus : bandeau, panneau et question y sont remis.
-        if (statusBar != null) raiseOthers()
-    }
-
-    private fun raiseOthers() {
-        notice?.let { current ->
-            remove(current)
-            notice = add(noticeWindow(top = noticeTop))
+        val current = statusBar
+        if (current == null) {
+            statusBar = add(statusWindow(corner))
+            return
         }
-        panel?.let { current ->
-            remove(current)
-            panel = add(panelWindow())
+        current.params.placeStatus(corner)
+        try {
+            windowManager.updateViewLayout(current.root, current.params)
+        } catch (e: IllegalArgumentException) {
+            // Fenêtre retirée entre-temps.
         }
-        keepQuestionOnTop()
     }
 
     private enum class Kind { None, NoticeTop, NoticeBottom, Panel }
-
-    /** Bandeau affiché en haut ou en bas de l'écran (coin de la notification). */
-    private var noticeTop = true
 
     private fun kindOf(overlay: Overlay) = when (overlay) {
         Overlay.None -> Kind.None
@@ -143,17 +153,19 @@ class OverlayWindowManager(
 
     private fun show(kind: Kind) {
         Log.i(TAG, "superposition : $kind")
-        // Bandeau d'un autre coin (haut / bas) : nouvelle fenêtre. L'ancien s'efface en fondu.
-        notice = notice?.let { fadeOutAndRemove(it); null }
         if (kind != Kind.Panel) panel = panel?.let { remove(it); null }
         when (kind) {
+            // Les fenêtres des notifications restent : leur contenu s'efface en fondu.
             Kind.None -> Unit
-            // Une question déjà affichée doit rester au-dessus (et garder le focus).
             Kind.NoticeTop, Kind.NoticeBottom -> {
-                noticeTop = kind == Kind.NoticeTop
-                notice = add(noticeWindow(top = noticeTop))
-                keepQuestionOnTop()
+                val top = kind == Kind.NoticeTop
+                if (notices[top] == null) {
+                    add(noticeWindow(top))?.let { notices[top] = it }
+                    // Première fois seulement : la question déjà affichée reste au-dessus.
+                    keepQuestionOnTop()
+                }
             }
+            // Le panneau prend le focus : une question déjà affichée doit le reprendre.
             Kind.Panel -> if (panel == null) {
                 panel = add(panelWindow())
                 keepQuestionOnTop()
@@ -190,13 +202,11 @@ class OverlayWindowManager(
                 if (kind == QuestionWindowKind.Dialog) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { QuestionDialog(current) }
                 } else {
-                    // Bas de l'écran (40 % de la hauteur au plus), marges de sécurité des téléviseurs comprises.
-                    val maxHeight = LocalConfiguration.current.screenHeightDp.dp * 2 / 5
                     // Carte centrée en bas, de largeur raisonnable ; de la place autour pour son ombre.
+                    // Sans hauteur maximale : trois réponses sur deux rangées ne sont jamais rognées.
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .heightIn(max = maxHeight)
                             .padding(start = 48.dp, end = 48.dp, top = 12.dp, bottom = 24.dp),
                         contentAlignment = Alignment.BottomCenter,
                     ) {
@@ -212,29 +222,26 @@ class OverlayWindowManager(
      * vidéo l'ignorent), avec la marge de sécurité des téléviseurs.
      */
     private fun statusWindow(corner: Corner): OverlayWindow {
-        val density = context.resources.displayMetrics.density
         val params = baseParams().apply {
             flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
-            gravity = (if (corner.isTop) Gravity.TOP else Gravity.BOTTOM) or (if (corner.isStart) Gravity.START else Gravity.END)
-            x = (STATUS_MARGIN_X_DP * density).toInt()
-            y = (STATUS_MARGIN_Y_DP * density).toInt()
+            placeStatus(corner)
             ignoreSystemInsets()
         }
+        // Rien de dessiné quand la barre ne doit pas se voir (application affichée, veille…).
         return OverlayWindow(OverlayRoot(context, onKey = null), params) { state ->
-            state.status?.let { StatusBarView(it, style = StatusBarStyle.Overlay) }
+            if (statusWindowKind(state) != null) state.status?.let { StatusBarView(it, style = StatusBarStyle.Overlay) }
         }
     }
 
-    /** Fondu de sortie (voir [OverlayNoticeView]), puis la fenêtre est retirée. */
-    private fun fadeOutAndRemove(window: OverlayWindow) {
-        window.shown.value = false
-        scope.launch {
-            delay(EXIT_FADE_MS + 50L)
-            remove(window)
-        }
+    /** Coin de la barre d'état, à la marge de sécurité des téléviseurs. */
+    private fun WindowManager.LayoutParams.placeStatus(corner: Corner) {
+        val density = context.resources.displayMetrics.density
+        gravity = (if (corner.isTop) Gravity.TOP else Gravity.BOTTOM) or (if (corner.isStart) Gravity.START else Gravity.END)
+        x = (STATUS_MARGIN_X_DP * density).toInt()
+        y = (STATUS_MARGIN_Y_DP * density).toInt()
     }
 
     private fun noticeWindow(top: Boolean): OverlayWindow {
@@ -250,10 +257,7 @@ class OverlayWindowManager(
             // En bas : au-dessus de la barre d'état (coins du bas), pour ne pas la masquer.
             y = ((if (top) 12 else 28) * context.resources.displayMetrics.density).toInt()
         }
-        val shown = mutableStateOf(true)
-        return OverlayWindow(OverlayRoot(context, onKey = null), params, shown = shown) { state ->
-            OverlayNoticeView(state, shown.value)
-        }
+        return OverlayWindow(OverlayRoot(context, onKey = null), params) { state -> OverlayNoticeView(state, top) }
     }
 
     private fun panelWindow(): OverlayWindow {
@@ -298,6 +302,7 @@ class OverlayWindowManager(
 
     private fun add(window: OverlayWindow): OverlayWindow? = try {
         window.owner.start()
+        window.owner.setActive(screenOn)
         windowManager.addView(window.root, window.params)
         window.root.requestFocus()
         window
@@ -323,8 +328,6 @@ class OverlayWindowManager(
         val root: OverlayRoot,
         val params: WindowManager.LayoutParams,
         val onRemoved: () -> Unit = {},
-        /** Faux pendant le fondu de sortie, avant le retrait de la fenêtre. */
-        val shown: MutableState<Boolean> = mutableStateOf(true),
         content: @Composable (AppState) -> Unit,
     ) {
         val owner = OverlayOwner()
@@ -396,6 +399,13 @@ internal class OverlayOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModel
         savedState.performAttach()
         savedState.performRestore(null)
         registry.currentState = Lifecycle.State.RESUMED
+    }
+
+    /** Écran éteint : CREATED (la vidéo s'arrête et rend son décodeur) ; rallumé : RESUMED. */
+    fun setActive(active: Boolean) {
+        val current = registry.currentState
+        if (current == Lifecycle.State.INITIALIZED || current == Lifecycle.State.DESTROYED) return
+        registry.currentState = if (active) Lifecycle.State.RESUMED else Lifecycle.State.CREATED
     }
 
     fun destroy() {

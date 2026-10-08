@@ -13,7 +13,9 @@ import kotlinx.coroutines.withContext
 /**
  * Facteur de sous-échantillonnage (puissance de 2) pour qu'une image de [width]×[height] soit
  * décodée à peine plus grande que [maxWidth]×[maxHeight] : une photo de 4000 px ne doit pas
- * occuper 60 Mo sur une TV de 2 Go.
+ * occuper 60 Mo sur une TV de 2 Go. Les deux côtés restent au moins à leur cible (l'image
+ * recadrée couvre toujours son cadre) : la cible doit donc avoir les proportions du cadre
+ * (16:9), pas un carré, sinon une photo 16:9 n'est jamais réduite.
  */
 fun sampleSizeFor(width: Int, height: Int, maxWidth: Int, maxHeight: Int): Int {
     var sample = 1
@@ -33,6 +35,25 @@ fun decodeSampled(bytes: ByteArray, maxWidth: Int, maxHeight: Int): ImageBitmap?
     }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
 }
+
+/** Résultat du décodage d'une image : en cours, prête, ou illisible (octets reçus mais invalides). */
+sealed interface DecodedImage {
+    data object Pending : DecodedImage
+    data class Ready(val bitmap: ImageBitmap) : DecodedImage
+    data object Unreadable : DecodedImage
+}
+
+/** Comme [rememberDecodedImage], en distinguant « pas encore » de « illisible ». */
+@Composable
+fun rememberDecodedImageResult(bytes: ByteArray?, maxWidth: Int, maxHeight: Int): State<DecodedImage> =
+    produceState<DecodedImage>(DecodedImage.Pending, bytes) {
+        value = if (bytes == null) {
+            DecodedImage.Pending
+        } else {
+            withContext(Dispatchers.Default) { runCatching { decodeSampled(bytes, maxWidth, maxHeight) }.getOrNull() }
+                ?.let { DecodedImage.Ready(it) } ?: DecodedImage.Unreadable
+        }
+    }
 
 /** Image décodée hors du thread principal ; null tant qu'elle ne l'est pas, ou si elle est illisible. */
 @Composable

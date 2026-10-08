@@ -34,6 +34,8 @@ class AppControllerQueueTest {
             factory,
             backgroundScope,
             OverlayPermission { true },
+            // Horloge virtuelle : l'attente en file (expiration) est mesurée comme sur la TV.
+            elapsedMs = { testScheduler.currentTime },
         )
         c.start()
         runCurrent()

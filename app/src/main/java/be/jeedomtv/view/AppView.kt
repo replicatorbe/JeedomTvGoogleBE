@@ -40,7 +40,7 @@ fun AppView(controller: AppController) {
                 corner.isStart -> Alignment.BottomStart
                 else -> Alignment.BottomEnd
             }
-            NotificationView(banner, videoAllowed, Modifier.align(alignment).padding(24.dp))
+            NotificationView(banner, videoAllowed, Modifier.align(alignment).padding(24.dp), waiting = state.waitingNotifications)
         }
         // Question de Jeedom dans l'application (en superposition, c'est une fenêtre à part).
         state.question?.takeIf { !it.inOverlay }?.let { question ->
@@ -52,7 +52,8 @@ fun AppView(controller: AppController) {
 
 /**
  * Un seul flux vidéo à la fois : la TV n'a que deux décodeurs, dont un pour la télé elle-même.
- * Une question avec vidéo garde le décodeur ; le bandeau montre alors son image.
+ * Une question avec vidéo garde le décodeur ; le bandeau montre alors son image. Écran éteint :
+ * pas de vidéo non plus (rien ne la regarde).
  */
-fun bannerVideoAllowed(state: AppState): Boolean = state.question?.video == null
+fun bannerVideoAllowed(state: AppState): Boolean = state.question?.video == null && state.screenOn
 
