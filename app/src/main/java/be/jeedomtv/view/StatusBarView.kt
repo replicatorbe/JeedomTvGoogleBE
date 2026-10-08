@@ -94,16 +94,32 @@ class StatusBarStyle(
  * seulement quand Jeedom change la barre.
  */
 @Composable
-fun StatusBarView(status: StatusBar, modifier: Modifier = Modifier, style: StatusBarStyle = StatusBarStyle.InApp) {
+fun StatusBarView(
+    status: StatusBar,
+    modifier: Modifier = Modifier,
+    style: StatusBarStyle = StatusBarStyle.InApp,
+    /** Jeedom injoignable : barre grisée (~40 %) et petit indicateur orange après l'heure. */
+    unreachable: Boolean = false,
+) {
     Row(
-        modifier.alpha(status.opacity.coerceIn(0, 100) / 100f).padding(style.padding),
+        modifier.alpha(statusBarAlpha(status.opacity, unreachable)).padding(style.padding),
         horizontalArrangement = Arrangement.spacedBy(style.spacing),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (status.clock) StatusClock(style)
+        if (unreachable) MdiIcon(UNREACHABLE_ICON, UnreachableOrange, style.iconSize * 1.2f)
         status.items.forEach { StatusChip(it, style) }
     }
 }
+
+/** Opacité de la barre : celle demandée par Jeedom, réduite à ~40 % de celle-ci s'il est injoignable. */
+fun statusBarAlpha(opacity: Int, unreachable: Boolean): Float =
+    opacity.coerceIn(0, 100) / 100f * (if (unreachable) UNREACHABLE_ALPHA else 1f)
+
+/** Indicateur « Jeedom injoignable » de la barre d'état. */
+internal const val UNREACHABLE_ICON = "mdi:lan-disconnect"
+internal const val UNREACHABLE_ALPHA = 0.4f
+private val UnreachableOrange = Color(0xFFFFA726)
 
 /** Heure courante, mise à jour au changement de minute seulement (pas de recomposition à chaque seconde). */
 @Composable

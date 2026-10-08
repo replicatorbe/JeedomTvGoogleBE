@@ -71,6 +71,9 @@ class AppController(
     /** Boucle des changements en direct ; une seule à la fois. */
     private var changesJob: Job? = null
 
+    /** Sans réponse de Jeedom pendant [UNREACHABLE_AFTER_MS] : il passe pour injoignable. */
+    private var reachWatchdog: Job? = null
+
     /** Début de l'attente longue en cours ([elapsedMs]) : au-delà de [STALE_CALL_MS], elle est morte. */
     private var changesCallStartedAt = 0L
 
@@ -323,11 +326,31 @@ class AppController(
         val target = driver ?: return
         if (authBlocked) return
         changesJob = scope.launch { runChanges(target, reloadFirst) }
+        armReachWatchdog()
     }
 
     private fun stopChangesLoop() {
         changesJob?.cancel()
         changesJob = null
+        reachWatchdog?.cancel()
+        reachWatchdog = null
+    }
+
+    /**
+     * Relance l'attente : une attente longue répond au moins toutes les 25 s ; sans aucune réponse
+     * pendant [UNREACHABLE_AFTER_MS] (appels en erreur ou bloqués), Jeedom est injoignable.
+     */
+    private fun armReachWatchdog() {
+        reachWatchdog?.cancel()
+        reachWatchdog = scope.launch {
+            delay(UNREACHABLE_AFTER_MS)
+            reachWatchdog = null
+            setJeedomReachable(false)
+        }
+    }
+
+    private fun setJeedomReachable(reachable: Boolean) {
+        if (state.value.jeedomReachable != reachable) update { it.copy(jeedomReachable = reachable) }
     }
 
     /**
@@ -360,6 +383,9 @@ class AppController(
                 since = result.since
                 failures = 0
                 update { it.copy(offline = false) }
+                // Jeedom répond : la barre reprend aussitôt son aspect normal.
+                setJeedomReachable(true)
+                armReachWatchdog()
                 applyChanges(result.changes)
                 // Barre d'état : état complet, remplacé tel quel (hors révision : elle change souvent).
                 if (result.statusChanged) update { it.copy(status = result.status) }
@@ -395,7 +421,9 @@ class AppController(
                     return
                 }
                 update { it.copy(offline = true) }
-                delay(retryDelayMs(failures++))
+                failures++
+                if (failures >= UNREACHABLE_FAILURES) setJeedomReachable(false)
+                delay(retryDelayMs(failures - 1))
                 reload = true
                 since = null
             }
@@ -1520,6 +1548,12 @@ class AppController(
 
         /** Notifications en attente au plus (la plus ancienne est abandonnée au-delà). */
         const val MAX_PENDING_NOTIFICATIONS = 3
+
+        /** Erreurs consécutives de `changes` au-delà desquelles Jeedom passe pour injoignable. */
+        const val UNREACHABLE_FAILURES = 3
+
+        /** Sans aucune réponse de `changes` pendant ce temps, Jeedom passe pour injoignable. */
+        const val UNREACHABLE_AFTER_MS = 60_000L
 
         /** Attente au-delà de laquelle une notification en file est périmée (au moins sa durée). */
         const val PENDING_STALE_MIN_MS = 30_000L

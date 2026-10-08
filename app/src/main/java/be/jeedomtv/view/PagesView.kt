@@ -139,7 +139,7 @@ private fun Header(state: AppState) {
         if (status != null) {
             // Au plus ~45 % de la largeur : les onglets gardent leur place, le reste est coupé.
             val maxWidth = LocalConfiguration.current.screenWidthDp.dp * 0.45f
-            Box(Modifier.widthIn(max = maxWidth).clipToBounds()) { StatusBarView(status) }
+            Box(Modifier.widthIn(max = maxWidth).clipToBounds()) { StatusBarView(status, unreachable = !state.jeedomReachable) }
         } else {
             state.tvName?.let { Text(it, color = JeedomTvColors.TextMuted, fontSize = 16.sp, maxLines = 1) }
         }

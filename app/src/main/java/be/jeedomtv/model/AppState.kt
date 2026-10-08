@@ -172,8 +172,13 @@ data class AppState(
     val confirmedTileId: String? = null,
     /** Panneau sur le point de se fermer faute de touche (10 dernières secondes) : fine barre. */
     val panelClosing: Boolean = false,
-    /** La boucle des changements en direct est en erreur. */
+    /** La boucle des changements en direct est en erreur (dès la première erreur : « hors ligne »). */
     val offline: Boolean = false,
+    /**
+     * Jeedom répond. Faux après plusieurs erreurs d'affilée, ou sans réponse depuis environ une
+     * minute : la barre d'état se grise discrètement. Vrai dès la première réponse.
+     */
+    val jeedomReachable: Boolean = true,
     /** L'écran de l'application est visible (sinon la TV affiche une autre application). */
     val uiVisible: Boolean = false,
     /** Écran de la TV allumé (false : TV en veille). */

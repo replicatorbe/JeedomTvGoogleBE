@@ -232,7 +232,7 @@ class OverlayWindowManager(
         }
         // Rien de dessiné quand la barre ne doit pas se voir (application affichée, veille…).
         return OverlayWindow(OverlayRoot(context, onKey = null), params) { state ->
-            if (statusWindowKind(state) != null) state.status?.let { StatusBarView(it, style = StatusBarStyle.Overlay) }
+            if (statusWindowKind(state) != null) state.status?.let { StatusBarView(it, style = StatusBarStyle.Overlay, unreachable = !state.jeedomReachable) }
         }
     }
 
