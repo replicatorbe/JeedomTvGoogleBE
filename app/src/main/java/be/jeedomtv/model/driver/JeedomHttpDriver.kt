@@ -1,5 +1,7 @@
 package be.jeedomtv.model.driver
 
+import be.jeedomtv.model.Board
+import be.jeedomtv.model.BoardSection
 import be.jeedomtv.model.Changes
 import be.jeedomtv.model.Choice
 import be.jeedomtv.model.ColorKey
@@ -7,8 +9,12 @@ import be.jeedomtv.model.Corner
 import be.jeedomtv.model.HeaderItem
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
+import be.jeedomtv.model.MAX_BOARD_NOTES
+import be.jeedomtv.model.MAX_BOARD_SECTIONS
+import be.jeedomtv.model.MAX_BOARD_TRAINS
 import be.jeedomtv.model.MAX_HEADER_ITEMS
 import be.jeedomtv.model.Page
+import be.jeedomtv.model.PageType
 import be.jeedomtv.model.PingInfo
 import be.jeedomtv.model.StatusBar
 import be.jeedomtv.model.StatusItem
@@ -20,6 +26,8 @@ import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
 import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
+import be.jeedomtv.model.Train
+import be.jeedomtv.model.TrainStatus
 import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.TvState
 import be.jeedomtv.model.VideoUrl
@@ -28,6 +36,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -110,6 +119,7 @@ class JeedomHttpDriver internal constructor(
             // `status` présent (même null) : état complet de la barre, à remplacer tel quel.
             statusChanged = dto.status !== ABSENT,
             status = if (dto.status === ABSENT) null else parseStatus(dto.status),
+            boards = parseBoards(dto.boards),
         )
     }
 
@@ -342,7 +352,8 @@ private data class LayoutDto(
 ) {
     fun toLayout() = Layout(
         revision = revision.orEmpty(),
-        pages = pages.decodeEach<PageDto>().mapIndexed { index, page -> page.toPage(index) },
+        // Index d'origine pour les noms par défaut ; une page de type inconnu est ignorée.
+        pages = pages.decodeEach<PageDto>().mapIndexedNotNull { index, page -> page.toPage(index) },
         keys = colorKeys(),
         header = header.decodeEach<HeaderItemDto>().mapNotNull { it.toItem() }.take(MAX_HEADER_ITEMS),
         status = parseStatus(status),
@@ -389,12 +400,23 @@ private data class PageDto(
     val id: String? = null,
     val name: String? = null,
     val tiles: List<JsonElement>? = null,
+    val type: String? = null,
+    val hidden: JsonElement? = null,
+    val board: JsonElement? = null,
 ) {
-    fun toPage(index: Int) = Page(
-        id = id ?: "page-$index",
-        name = name ?: "Page ${index + 1}",
-        tiles = tiles.decodeEach<TileDto>().mapNotNull { it.toTile() },
-    )
+    /** Type inconnu : null, la page est ignorée. Une page `board` n'a jamais de tuile. */
+    fun toPage(index: Int): Page? {
+        val pageType = PageType.fromApi(type) ?: return null
+        val isBoard = pageType == PageType.Board
+        return Page(
+            id = id ?: "page-$index",
+            name = name ?: "Page ${index + 1}",
+            tiles = if (isBoard) emptyList() else tiles.decodeEach<TileDto>().mapNotNull { it.toTile() },
+            type = pageType,
+            hidden = hidden.asFlag() ?: false,
+            board = if (isBoard) parseBoard(board) ?: Board() else null,
+        )
+    }
 }
 
 @Serializable
@@ -450,6 +472,7 @@ private data class ChangesDto(
     val commands: List<JsonElement>? = null,
     /** Valeur par défaut [ABSENT] : distingue « pas de `status` » de `"status": null`. */
     val status: JsonElement? = ABSENT,
+    val boards: JsonElement? = null,
 )
 
 /** Marqueur d'un champ absent de la réponse (jamais envoyé par le plugin). */
@@ -461,7 +484,7 @@ private val ABSENT: JsonElement = JsonPrimitive("\u0000absent")
  */
 internal fun parseStatus(element: JsonElement?): StatusBar? {
     val obj = element as? JsonObject ?: return null
-    val items = (obj["items"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { item ->
+    val items = (obj["items"] as? JsonArray).orEmpty().mapNotNull { item ->
         val fields = item as? JsonObject ?: return@mapNotNull null
         val id = fields["id"].asText()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
         StatusItem(
@@ -482,6 +505,59 @@ internal fun parseStatus(element: JsonElement?): StatusBar? {
         items = items,
     )
 }
+
+/**
+ * `boards` de `changes` : tableau complet par id de page. Absent ou illisible : vide (aucun
+ * tableau n'a changé) ; une entrée qui n'est pas un objet est ignorée.
+ */
+internal fun parseBoards(element: JsonElement?): Map<String, Board> {
+    val obj = element as? JsonObject ?: return emptyMap()
+    return obj.entries.mapNotNull { (pageId, board) -> parseBoard(board)?.let { pageId to it } }.toMap()
+}
+
+/**
+ * Tableau des trains (`board`) ; null s'il n'est pas un objet. Lecture tolérante : champs absents
+ * vides, état inconnu « à l'heure », nombres en texte acceptés, limites du contrat appliquées.
+ */
+internal fun parseBoard(element: JsonElement?): Board? {
+    val obj = element as? JsonObject ?: return null
+    val sections = (obj["sections"] as? JsonArray).orEmpty().mapIndexedNotNull { index, item ->
+        val fields = item as? JsonObject ?: return@mapIndexedNotNull null
+        BoardSection(
+            id = fields["id"].asText()?.takeIf { it.isNotBlank() } ?: "section-$index",
+            title = fields["title"].asText().orEmpty(),
+            day = fields["day"].asText().orEmpty(),
+            updated = fields["updated"].asText().orEmpty(),
+            notes = (fields["notes"] as? JsonArray).orEmpty()
+                .mapNotNull { it.asText()?.takeIf { text -> text.isNotBlank() } }
+                .take(MAX_BOARD_NOTES),
+            trains = (fields["trains"] as? JsonArray).orEmpty().mapNotNull { parseTrain(it) }.take(MAX_BOARD_TRAINS),
+        )
+    }
+    return Board(sections.take(MAX_BOARD_SECTIONS))
+}
+
+/** Un départ ; sans heure prévue, il n'a pas de sens : ignoré. */
+private fun parseTrain(element: JsonElement): Train? {
+    val fields = element as? JsonObject ?: return null
+    val time = fields["time"].asText()?.takeIf { it.isNotBlank() } ?: return null
+    return Train(
+        time = time,
+        real = fields["real"].asText()?.takeIf { it.isNotBlank() } ?: time,
+        delay = fields["delay"].asCount(),
+        vehicle = fields["vehicle"].asText().orEmpty(),
+        direction = fields["direction"].asText().orEmpty(),
+        platform = fields["platform"].asText().orEmpty(),
+        platformChanged = fields["platformChanged"].asFlag() ?: false,
+        transfers = fields["transfers"].asCount(),
+        status = TrainStatus.fromApi(fields["status"].asText()),
+        next = fields["next"].asFlag() ?: false,
+    )
+}
+
+/** Entier ≥ 0 (retard, correspondances) : nombre ou texte numérique ; 0 sinon. */
+private fun JsonElement?.asCount(): Int =
+    asText()?.trim()?.toDoubleOrNull()?.toInt()?.coerceAtLeast(0) ?: 0
 
 @Serializable
 private data class CommandDto(

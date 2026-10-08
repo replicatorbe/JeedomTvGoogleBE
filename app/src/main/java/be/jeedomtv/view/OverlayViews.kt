@@ -93,7 +93,8 @@ internal const val EXIT_FADE_MS = 200
  */
 @Composable
 fun OverlayPanelView(state: AppState) {
-    if (state.overlay !is Overlay.Panel) return
+    // Tableau des trains : fenêtre plein écran à part (voir OverlayBoardView).
+    if (state.overlay !is Overlay.Panel || state.currentBoard != null) return
     Column(
         Modifier
             .fillMaxWidth()
@@ -145,6 +146,17 @@ fun OverlayPanelView(state: AppState) {
     }
 }
 
+/**
+ * Panneau `show` sur un tableau des trains, par-dessus la vidéo : écran plein, opaque. Le bandeau
+ * d'un `notify` arrivé pendant ce temps s'y affiche en une ligne, comme dans le panneau.
+ */
+@Composable
+fun OverlayBoardView(state: AppState) {
+    if (state.overlay !is Overlay.Panel) return
+    val page = state.currentPage?.takeIf { it.isBoard } ?: return
+    BoardView(page, state, inOverlay = true)
+}
+
 /** Haut arrondi du panneau ; le bas touche le bord de l'écran. */
 private val PanelShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
 
@@ -162,7 +174,7 @@ private fun PanelSlot(height: Dp, content: @Composable () -> Unit) {
 
 /** Ligne de message dans le panneau (bandeau d'un `notify`, erreur). */
 @Composable
-private fun PanelLine(text: String, background: Color, maxLines: Int, icon: String? = null, iconColor: Color = Color.White) {
+internal fun PanelLine(text: String, background: Color, maxLines: Int, icon: String? = null, iconColor: Color = Color.White) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -181,7 +193,7 @@ private fun PanelLine(text: String, background: Color, maxLines: Int, icon: Stri
  * vide jusqu'à la fermeture ; toute touche l'efface (le contrôleur relance l'attente).
  */
 @Composable
-private fun ClosingBar(modifier: Modifier = Modifier) {
+internal fun ClosingBar(modifier: Modifier = Modifier) {
     val remaining = remember { Animatable(1f) }
     LaunchedEffect(Unit) { remaining.animateTo(0f, tween(PANEL_CLOSING_MS, easing = LinearEasing)) }
     Canvas(modifier.fillMaxWidth().height(3.dp)) {

@@ -1,11 +1,34 @@
 package be.jeedomtv.model
 
-/** Une page d'onglet : un ensemble de tuiles affiché en grille. */
+/**
+ * Une page : un ensemble de tuiles affiché en grille ([PageType.Tiles]), ou un tableau des trains
+ * ([PageType.Board], sans tuile). Une page cachée n'est ni dans les onglets ni dans la navigation
+ * ◀ ▶ : seuls `show` et les touches de couleur l'ouvrent.
+ */
 data class Page(
     val id: String,
     val name: String,
     val tiles: List<Tile>,
-)
+    val type: PageType = PageType.Tiles,
+    val hidden: Boolean = false,
+    /** Contenu du tableau d'une page [PageType.Board] ; null pour une page de tuiles. */
+    val board: Board? = null,
+) {
+    val isBoard: Boolean
+        get() = type == PageType.Board
+}
+
+/** Type de page du contrat ; un type inconnu n'a pas d'équivalent : la page est ignorée. */
+enum class PageType(val apiName: String) {
+    Tiles("tiles"),
+    Board("board");
+
+    companion object {
+        /** Champ absent : `tiles` ; type inconnu : null. */
+        fun fromApi(name: String?): PageType? =
+            if (name == null) Tiles else entries.firstOrNull { it.apiName == name }
+    }
+}
 
 /** Pages de la TV et révision de leur configuration (change dès que les pages changent dans Jeedom). */
 data class Layout(

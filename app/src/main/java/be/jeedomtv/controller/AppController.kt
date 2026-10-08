@@ -4,12 +4,14 @@ import be.jeedomtv.model.Adjust
 import be.jeedomtv.model.AppModel
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Banner
+import be.jeedomtv.model.Board
 import be.jeedomtv.model.ChoiceMode
 import be.jeedomtv.model.ColorKey
 import be.jeedomtv.model.FocusZone
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Overlay
+import be.jeedomtv.model.Page
 import be.jeedomtv.model.PendingAction
 import be.jeedomtv.model.Question
 import be.jeedomtv.model.QuestionStatus
@@ -117,6 +119,15 @@ class AppController(
     private var returnTarget: ReturnTarget? = null
     private var returnTimer: Job? = null
 
+    /**
+     * Écran à retrouver par Retour sur un tableau des trains (ouvert par `show` ou une touche de
+     * couleur), même sans durée et même après une touche : un tableau n'a pas d'autre sortie.
+     */
+    private var boardReturn: BoardReturn? = null
+
+    /** Quitte la page cachée affichée quand l'application reste derrière (voir [leaveHiddenPage]). */
+    private var hiddenPageTimer: Job? = null
+
     /** Fermeture automatique de la superposition (durée de l'ordre, puis inactivité). */
     private var overlayTimer: Job? = null
 
@@ -198,6 +209,15 @@ class AppController(
     /** L'écran de l'application devient visible ou passe derrière une autre application. */
     fun onUiVisibilityChanged(visible: Boolean) {
         update { it.copy(uiVisible = visible, foregroundRequested = it.foregroundRequested && !visible) }
+        // Application quittée sur une page cachée (Accueil sur le tableau des trains) : elle ne doit
+        // pas être la page d'arrivée au prochain lancement. Après un court délai : une activité
+        // recréée (changement de configuration) repasse aussitôt devant, le tableau doit rester.
+        hiddenPageTimer?.cancel()
+        hiddenPageTimer = if (visible) null else scope.launch {
+            delay(HIDDEN_PAGE_DELAY_MS)
+            hiddenPageTimer = null
+            leaveHiddenPage()
+        }
         // L'application complète est affichée : le panneau n'a plus lieu d'être.
         if (visible && state.value.overlay is Overlay.Panel) dismissOverlay(restoreSelection = false)
         // La notification affichée suit l'écran (application ou superposition), avec son temps restant.
@@ -389,6 +409,8 @@ class AppController(
                 applyChanges(result.changes)
                 // Barre d'état : état complet, remplacé tel quel (hors révision : elle change souvent).
                 if (result.statusChanged) update { it.copy(status = result.status) }
+                // Tableaux des trains : contenu complet, remplacé tel quel (hors révision lui aussi).
+                if (result.boards.isNotEmpty()) update { it.withBoards(result.boards) }
                 val revision = result.revision
                 // Les ordres ne sont livrés qu'une fois : un layout impossible à recharger ne doit
                 // pas les perdre. Ils passent, puis l'erreur relance la boucle.
@@ -510,6 +532,7 @@ class AppController(
             background = !current.uiVisible,
         )
         cancelAutoReturn()
+        if (current.pages[index].isBoard) rememberBoardReturn(command.page, previous)
         val changesSomething = previous.background || previous.screen != Screen.Pages || previous.pageId != command.page
         if (command.durationSec > 0 && changesSomething) {
             returnTarget = previous
@@ -565,6 +588,81 @@ class AppController(
         returnTimer?.cancel()
         returnTimer = null
         returnTarget = null
+    }
+
+    /**
+     * Page cachée affichée alors que l'application est derrière : retour à l'écran d'avant son
+     * ouverture s'il était une page visible, sinon à la première page. Un affichage temporaire en
+     * cours (`show` avec durée) s'en charge lui-même. Aussi à la fermeture d'un panneau, si la
+     * page rendue à l'application est cachée.
+     */
+    private fun leaveHiddenPage() {
+        val current = state.value
+        val page = current.currentPage ?: return
+        // Application revenue devant, ou panneau ouvert entre-temps (sa page est la sienne).
+        if (current.uiVisible || current.overlay is Overlay.Panel) return
+        if (!page.hidden || returnTarget != null) return
+        val back = boardReturn?.takeIf { it.pageId == page.id }?.back
+        boardReturn = null
+        val index = back?.takeIf { it.screen == Screen.Pages }
+            ?.let { b -> current.pages.indexOfFirst { it.id == b.pageId && !it.hidden }.takeIf { it >= 0 } }
+            ?: current.firstVisiblePageIndex
+            ?: return
+        update { it.copy(pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tiles) }
+    }
+
+    /**
+     * Un tableau des trains s'ouvre (page [pageId]) : Retour ramènera à [back]. Si un tableau est
+     * déjà affiché, son propre retour est gardé (un tableau n'en ramène pas à un autre).
+     */
+    private fun rememberBoardReturn(pageId: String, back: ReturnTarget) {
+        val current = state.value
+        val keep = boardReturn?.takeIf {
+            current.uiVisible && current.screen == Screen.Pages && it.pageId == current.currentPage?.id
+        }?.back
+        boardReturn = BoardReturn(pageId, keep ?: back)
+    }
+
+    /**
+     * Touches du tableau des trains dans l'application : aucune action. Retour le ferme ; une
+     * touche de couleur ouvre sa page (la sienne le ferme, comme sur le panneau) ; le reste est sans effet.
+     */
+    private fun onBoardCommand(command: RemoteCommand, current: AppState): Boolean {
+        when (command) {
+            RemoteCommand.Back -> return leaveBoard(current)
+            is RemoteCommand.Color -> {
+                val target = current.pageIndexFor(command.key) ?: return false
+                if (target == current.pageIndex) return leaveBoard(current)
+                val page = current.pages[target]
+                // Vers un autre tableau : Retour ramènera toujours à l'écran d'avant le premier.
+                if (page.isBoard) {
+                    boardReturn = boardReturn?.takeIf { it.pageId == current.currentPage?.id }?.copy(pageId = page.id)
+                } else {
+                    boardReturn = null
+                }
+                update { it.copy(pageIndex = target, focusedIndex = 0, focusZone = FocusZone.Tiles) }
+            }
+            else -> Unit
+        }
+        return true
+    }
+
+    /**
+     * Retour sur le tableau : écran (ou application) d'avant son ouverture, comme à la fin d'un
+     * `show`. Sans écran connu : la première page ; s'il n'y en a pas, l'activité quitte (false).
+     */
+    private fun leaveBoard(current: AppState): Boolean {
+        val pageId = current.currentPage?.id
+        val back = boardReturn?.takeIf { it.pageId == pageId }?.back
+        boardReturn = null
+        val returnsHere = back != null && !back.background && back.screen == Screen.Pages && back.pageId == pageId
+        if (back != null && !returnsHere) {
+            restore(back)
+            return true
+        }
+        val home = current.firstVisiblePageIndex?.takeIf { it != current.pageIndex } ?: return false
+        update { it.copy(pageIndex = home, focusedIndex = 0, focusZone = FocusZone.Tiles) }
+        return true
     }
 
     /**
@@ -827,8 +925,10 @@ class AppController(
     private fun restartPanelIdleTimer() {
         overlayTimer?.cancel()
         if (state.value.panelClosing) update { it.copy(panelClosing = false) }
+        // Un tableau des trains se lit sans toucher la télécommande : il reste plus longtemps.
+        val idleMs = if (state.value.currentPage?.isBoard == true) BOARD_IDLE_MS else PANEL_IDLE_MS
         overlayTimer = scope.launch {
-            delay(PANEL_IDLE_MS - PANEL_CLOSING_WARNING_MS)
+            delay(idleMs - PANEL_CLOSING_WARNING_MS)
             update { it.copy(panelClosing = true) }
             delay(PANEL_CLOSING_WARNING_MS)
             overlayTimer = null
@@ -877,7 +977,10 @@ class AppController(
             restored.copy(overlay = Overlay.None, panelClosing = false)
         }
         // Panneau fermé, application cachée : sa notification passe en superposition.
-        if (closing is Overlay.Panel) relocateNotification()
+        if (closing is Overlay.Panel) {
+            relocateNotification()
+            leaveHiddenPage()
+        }
     }
 
     /**
@@ -887,6 +990,15 @@ class AppController(
      */
     private fun onPanelCommand(command: RemoteCommand, current: AppState): Boolean {
         restartPanelIdleTimer()
+        // Tableau des trains : aucune action ; Retour ferme, les touches de couleur restent actives.
+        if (current.currentPage?.isBoard == true) {
+            when (command) {
+                RemoteCommand.Back -> dismissOverlay(restoreSelection = true)
+                is RemoteCommand.Color -> return onPanelColor(command.key, current)
+                else -> Unit
+            }
+            return true
+        }
         if (command == RemoteCommand.Menu) {
             openFullApp()
             return true
@@ -916,6 +1028,8 @@ class AppController(
             dismissOverlay(restoreSelection = true)
         } else {
             update { it.copy(pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tiles, adjust = null, choice = null, confirm = null) }
+            // Délai d'inactivité de la nouvelle page (plus long pour un tableau des trains).
+            restartPanelIdleTimer()
         }
         return true
     }
@@ -1168,6 +1282,8 @@ class AppController(
             // Touche de couleur : la configuration en service reste, la page s'affiche.
             is RemoteCommand.Color -> {
                 val index = current.pageIndexFor(command.key) ?: return false
+                val page = current.pages[index]
+                if (page.isBoard) rememberBoardReturn(page.id, ReturnTarget(Screen.Setup, null, 0, background = false))
                 update { it.copy(screen = Screen.Pages, error = null, pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tiles) }
             }
             else -> return false
@@ -1178,9 +1294,14 @@ class AppController(
     // --- Écran des pages ---------------------------------------------------------------------
 
     private fun onPagesCommand(command: RemoteCommand, current: AppState): Boolean {
+        if (current.currentPage?.isBoard == true) return onBoardCommand(command, current)
         // Application affichée : la page associée s'affiche directement, réglage ou confirmation abandonnés.
         if (command is RemoteCommand.Color) {
             val target = current.pageIndexFor(command.key) ?: return false
+            val page = current.pages[target]
+            if (page.isBoard) {
+                rememberBoardReturn(page.id, ReturnTarget(Screen.Pages, current.currentPage?.id, current.focusedIndex, background = false))
+            }
             update { it.copy(pageIndex = target, focusedIndex = 0, focusZone = FocusZone.Tiles, adjust = null, choice = null, confirm = null) }
             return true
         }
@@ -1205,8 +1326,8 @@ class AppController(
         if (current.focusZone != FocusZone.Tabs) return null
         val hasTiles = current.currentPage?.tiles.orEmpty().isNotEmpty()
         when (command) {
-            RemoteCommand.Left -> showPageInTabs(current.pageIndex - 1)
-            RemoteCommand.Right -> showPageInTabs(current.pageIndex + 1)
+            RemoteCommand.Left -> showPageInTabs(-1)
+            RemoteCommand.Right -> showPageInTabs(1)
             RemoteCommand.Down, RemoteCommand.Ok -> if (hasTiles) {
                 update { it.copy(focusZone = FocusZone.Tiles, focusedIndex = 0) }
             }
@@ -1221,11 +1342,10 @@ class AppController(
         return true
     }
 
-    /** ◀ ▶ dans les onglets : page voisine, en boucle ; le focus reste dans les onglets. */
-    private fun showPageInTabs(index: Int) {
-        val count = state.value.pages.size
-        if (count == 0) return
-        update { it.copy(pageIndex = Math.floorMod(index, count), focusedIndex = 0, focusZone = FocusZone.Tabs) }
+    /** ◀ ▶ dans les onglets : page voisine (sans les pages cachées), en boucle ; le focus reste dans les onglets. */
+    private fun showPageInTabs(step: Int) {
+        val index = state.value.neighbourPageIndex(step) ?: return
+        update { it.copy(pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tabs) }
     }
 
     private fun onGridCommand(command: RemoteCommand, current: AppState): Boolean {
@@ -1242,8 +1362,8 @@ class AppController(
             RemoteCommand.Down -> moveDown(index, tiles.size)
             RemoteCommand.Left -> moveFocusTo(index - 1, tiles.size)
             RemoteCommand.Right -> moveFocusTo(index + 1, tiles.size)
-            RemoteCommand.ChannelUp -> showPage(current.pageIndex + 1)
-            RemoteCommand.ChannelDown -> showPage(current.pageIndex - 1)
+            RemoteCommand.ChannelUp -> showPage(1)
+            RemoteCommand.ChannelDown -> showPage(-1)
             RemoteCommand.Ok -> tiles.getOrNull(index)?.let { activate(it) }
             is RemoteCommand.Digit -> {
                 val target = command.value - 1
@@ -1274,11 +1394,10 @@ class AppController(
         if (target in 0 until size) update { it.copy(focusedIndex = target) }
     }
 
-    /** Page suivante / précédente, en boucle ; la sélection revient sur la première tuile. */
-    private fun showPage(index: Int) {
-        val count = state.value.pages.size
-        if (count == 0) return
-        update { it.copy(pageIndex = Math.floorMod(index, count), focusedIndex = 0, focusZone = FocusZone.Tiles) }
+    /** Page suivante / précédente (sans les pages cachées), en boucle ; la sélection revient sur la première tuile. */
+    private fun showPage(step: Int) {
+        val index = state.value.neighbourPageIndex(step) ?: return
+        update { it.copy(pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tiles) }
     }
 
     /** Configuration : la boucle continue (les ordres de Jeedom restent reçus). */
@@ -1543,6 +1662,12 @@ class AppController(
         /** Panneau sans durée, ou touché par l'utilisateur : fermé après une minute sans touche. */
         const val PANEL_IDLE_MS = 60_000L
 
+        /** Application derrière depuis ce délai : une page cachée affichée est quittée. */
+        const val HIDDEN_PAGE_DELAY_MS = 2_000L
+
+        /** Panneau sur un tableau des trains : on le lit sans toucher la télécommande. */
+        const val BOARD_IDLE_MS = 5 * 60_000L
+
         /** Barre d'avertissement avant la fermeture du panneau pour inactivité. */
         const val PANEL_CLOSING_WARNING_MS = 10_000L
 
@@ -1569,6 +1694,9 @@ class AppController(
     }
 
     private data class PanelReturn(val pageId: String?, val focusedIndex: Int)
+
+    /** Retour d'un tableau des trains : [back] vaut tant que la page [pageId] est affichée. */
+    private data class BoardReturn(val pageId: String, val back: ReturnTarget)
 
     /** [background] : l'application était en arrière-plan avant l'affichage temporaire. */
     private data class ReturnTarget(
@@ -1609,6 +1737,27 @@ fun formatValue(value: Double, unit: String): String {
     return if (unit.isBlank()) text else "$text $unit"
 }
 
+/**
+ * Page voisine de [index] qui n'est pas cachée (elle-même, sinon la suivante, sinon la précédente) :
+ * au démarrage ou après la disparition d'une page, une page cachée ne s'affiche pas d'elle-même.
+ * Toutes cachées : [index].
+ */
+private fun neighbourVisible(pages: List<Page>, index: Int): Int {
+    if (pages.getOrNull(index)?.hidden != true) return index
+    return (index until pages.size).firstOrNull { !pages[it].hidden }
+        ?: (index downTo 0).firstOrNull { !pages[it].hidden }
+        ?: index
+}
+
+/** Tableaux des trains reçus par `changes.boards` : remplacés tels quels, seulement sur les pages `board`. */
+internal fun AppState.withBoards(boards: Map<String, Board>): AppState {
+    if (pages.none { it.isBoard && it.id in boards }) return this
+    return copy(pages = pages.map { page ->
+        val board = boards[page.id]
+        if (page.isBoard && board != null) page.copy(board = board) else page
+    })
+}
+
 /** Nouvelles valeurs de tuiles, dans toutes les pages où elles apparaissent. */
 internal fun AppState.withChanges(changes: List<TileChange>): AppState {
     if (changes.isEmpty()) return this
@@ -1640,7 +1789,7 @@ internal fun AppState.withChanges(changes: List<TileChange>): AppState {
 internal fun AppState.withLayout(layout: Layout): AppState {
     val currentPageId = currentPage?.id
     val samePage = layout.pages.indexOfFirst { it.id == currentPageId }.takeIf { it >= 0 }
-    val newPageIndex = samePage ?: pageIndex.coerceIn(0, (layout.pages.size - 1).coerceAtLeast(0))
+    val newPageIndex = samePage ?: neighbourVisible(layout.pages, pageIndex.coerceIn(0, (layout.pages.size - 1).coerceAtLeast(0)))
     val newTiles = layout.pages.getOrNull(newPageIndex)?.tiles.orEmpty()
     val focusedId = focusedTile?.id
     val newFocus = when {

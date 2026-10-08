@@ -230,13 +230,44 @@ data class AppState(
     val ownsRemoteKeys: Boolean
         get() = uiVisible || overlay is Overlay.Panel || question?.inOverlay == true
 
+    /** Tableau des trains affiché (page `board` courante), s'il y en a un. */
+    val currentBoard: Board?
+        get() = currentPage?.takeIf { it.isBoard }?.board
+
+    /**
+     * Onglets : les pages non cachées, avec leur index dans [pages]. Une page cachée affichée
+     * (ouverte par `show` ou une touche de couleur) y figure tant qu'elle l'est.
+     */
+    val tabPages: List<IndexedValue<Page>>
+        get() = pages.withIndex().filter { !it.value.hidden || it.index == pageIndex }
+
+    /**
+     * Index de la page voisine pour ◀ ▶ et CH+ / CH- ([step] = 1 ou -1), en boucle, sans les pages
+     * cachées ; null s'il n'y en a aucune. Depuis une page cachée : la voisine dans l'ordre des pages.
+     */
+    fun neighbourPageIndex(step: Int): Int? {
+        val visible = pages.indices.filter { !pages[it].hidden }
+        if (visible.isEmpty()) return null
+        val position = visible.indexOf(pageIndex)
+        if (position >= 0) return visible[Math.floorMod(position + step, visible.size)]
+        return if (step > 0) {
+            visible.firstOrNull { it > pageIndex } ?: visible.first()
+        } else {
+            visible.lastOrNull { it < pageIndex } ?: visible.last()
+        }
+    }
+
+    /** Première page non cachée (page d'accueil), ou null s'il n'y en a pas. */
+    val firstVisiblePageIndex: Int?
+        get() = pages.indexOfFirst { !it.hidden }.takeIf { it >= 0 }
+
     /**
      * Index de la page associée à la touche [key], ou null si la touche est inactive.
-     * Sans `keys`, la touche rouge ouvre la première page et les autres ne font rien.
+     * Sans `keys`, la touche rouge ouvre la première page (non cachée) et les autres ne font rien.
      */
     fun pageIndexFor(key: ColorKey): Int? {
         val keys = colorKeys
-            ?: return if (key == ColorKey.Red && pages.isNotEmpty()) 0 else null
+            ?: return if (key == ColorKey.Red) firstVisiblePageIndex else null
         val id = keys[key] ?: return null
         return pages.indexOfFirst { it.id == id }.takeIf { it >= 0 }
     }

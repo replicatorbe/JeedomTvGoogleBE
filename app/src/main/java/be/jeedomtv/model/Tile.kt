@@ -108,6 +108,8 @@ data class Changes(
     /** `status` présent dans la réponse : la barre d'état est remplacée par [status] (null : retirée). */
     val statusChanged: Boolean = false,
     val status: StatusBar? = null,
+    /** Tableaux des trains dont le contenu a changé (`boards`), par id de page ; vide : aucun. */
+    val boards: Map<String, Board> = emptyMap(),
 )
 
 /** Ordre de Jeedom pour la TV (« Commandes Jeedom → TV » du contrat). */

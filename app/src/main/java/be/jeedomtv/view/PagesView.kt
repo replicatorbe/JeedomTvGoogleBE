@@ -20,7 +20,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -77,6 +77,11 @@ internal val CompactMinTileHeight = 92.dp
  */
 @Composable
 fun PagesView(state: AppState) {
+    // Tableau des trains : écran plein, sans onglets ni tuiles.
+    state.currentPage?.takeIf { it.isBoard }?.let { page ->
+        BoardView(page, state)
+        return
+    }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 18.dp)) {
             Header(state)
@@ -166,8 +171,11 @@ internal fun OfflineIndicator() {
 @Composable
 internal fun PageTabs(state: AppState, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
-    LaunchedEffect(state.pageIndex) {
-        if (state.pages.isNotEmpty()) listState.animateScrollToItem(state.pageIndex)
+    // Sans les pages cachées : seuls `show` et les touches de couleur les ouvrent.
+    val tabs = state.tabPages
+    LaunchedEffect(state.pageIndex, tabs.size) {
+        val position = tabs.indexOfFirst { it.index == state.pageIndex }
+        if (position >= 0) listState.animateScrollToItem(position)
     }
     LazyRow(
         state = listState,
@@ -175,7 +183,7 @@ internal fun PageTabs(state: AppState, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        itemsIndexed(state.pages, key = { index, page -> "$index:${page.id}" }) { index, page ->
+        items(tabs, key = { (index, page) -> "$index:${page.id}" }) { (index, page) ->
             PageTab(page, selected = index == state.pageIndex, targeted = index == state.pageIndex && state.focusZone == FocusZone.Tabs)
         }
     }

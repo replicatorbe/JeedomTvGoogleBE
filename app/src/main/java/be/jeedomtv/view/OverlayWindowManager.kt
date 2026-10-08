@@ -77,7 +77,7 @@ class OverlayWindowManager(
         }
         scope.launch {
             controller.state
-                .map { kindOf(it.overlay) }
+                .map { kindOf(it) }
                 .distinctUntilChanged()
                 .collect { show(it) }
         }
@@ -143,17 +143,24 @@ class OverlayWindowManager(
         }
     }
 
-    private enum class Kind { None, NoticeTop, NoticeBottom, Panel }
+    private enum class Kind { None, NoticeTop, NoticeBottom, Panel, Board }
 
-    private fun kindOf(overlay: Overlay) = when (overlay) {
+    /** Le panneau sur un tableau des trains devient une fenêtre plein écran (le genre suit la page affichée). */
+    private fun kindOf(state: AppState) = when (val overlay = state.overlay) {
         Overlay.None -> Kind.None
         is Overlay.Notice -> if (overlay.banner.corner.isTop) Kind.NoticeTop else Kind.NoticeBottom
-        is Overlay.Panel -> Kind.Panel
+        is Overlay.Panel -> if (state.currentBoard != null) Kind.Board else Kind.Panel
     }
+
+    /** Genre de la fenêtre [panel] (panneau en bas, ou tableau plein écran). */
+    private var panelKind = Kind.None
 
     private fun show(kind: Kind) {
         Log.i(TAG, "superposition : $kind")
-        if (kind != Kind.Panel) panel = panel?.let { remove(it); null }
+        if (kind != panelKind) {
+            panel = panel?.let { remove(it); null }
+            panelKind = Kind.None
+        }
         when (kind) {
             // Les fenêtres des notifications restent : leur contenu s'efface en fondu.
             Kind.None -> Unit
@@ -166,8 +173,9 @@ class OverlayWindowManager(
                 }
             }
             // Le panneau prend le focus : une question déjà affichée doit le reprendre.
-            Kind.Panel -> if (panel == null) {
-                panel = add(panelWindow())
+            Kind.Panel, Kind.Board -> if (panel == null) {
+                panel = add(if (kind == Kind.Board) boardWindow() else panelWindow())
+                panelKind = kind
                 keepQuestionOnTop()
             }
         }
@@ -275,6 +283,24 @@ class OverlayWindowManager(
             isFocusableInTouchMode = true
         }
         return OverlayWindow(root, params, onRemoved = keys::clear) { state -> OverlayPanelView(state) }
+    }
+
+    /**
+     * Tableau des trains par-dessus la vidéo : fenêtre focusable plein écran (Retour et les touches
+     * de couleur passent par le contrôleur), au-dessus des barres système comme la vidéo elle-même.
+     */
+    private fun boardWindow(): OverlayWindow {
+        val keys = overlayKeys()
+        val params = baseParams().apply {
+            width = WindowManager.LayoutParams.MATCH_PARENT
+            height = WindowManager.LayoutParams.MATCH_PARENT
+            ignoreSystemInsets()
+        }
+        val root = OverlayRoot(context, onKey = keys::dispatch).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+        }
+        return OverlayWindow(root, params, onRemoved = keys::clear) { state -> OverlayBoardView(state) }
     }
 
     /**
