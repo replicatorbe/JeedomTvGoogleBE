@@ -239,14 +239,22 @@ class AppController(
      * (écran éteint puis rallumé aussitôt) est gardée : abandonnée, elle resterait ouverte côté
      * Jeedom et pourrait y emporter un ordre, livré une seule fois.
      *
-     * À la mise en veille, un tableau des trains par-dessus la télé se ferme : personne ne le
-     * regarde, et au réveil (le soir) il masquerait la télé avec les trains du matin.
+     * À la mise en veille, le tableau des trains se ferme (par-dessus la télé comme dans
+     * l'application) : personne ne le regarde, et au réveil (le soir) il masquerait la télé avec
+     * les trains du matin. Dans l'application, retour à l'écran ou à l'application d'avant.
      */
     fun onScreenChanged(on: Boolean) {
         update { it.copy(screenOn = on) }
         if (!on) {
             val current = state.value
-            if (current.overlay is Overlay.Panel && current.currentPage?.isBoard == true) dismissOverlay(restoreSelection = true)
+            if (current.currentPage?.isBoard != true) return
+            if (current.overlay is Overlay.Panel) {
+                dismissOverlay(restoreSelection = true)
+            } else if (current.screen == Screen.Pages) {
+                val back = returnTarget
+                cancelAutoReturn()
+                if (back != null) restore(back) else leaveBoard(current)
+            }
             return
         }
         val stale = elapsedMs() - changesCallStartedAt > STALE_CALL_MS
@@ -526,20 +534,26 @@ class AppController(
         if (current.screen == Screen.Loading || (current.screen == Screen.Setup && current.uiVisible)) return
         val index = current.pages.indexOfFirst { it.id == command.page }
         if (index < 0) return
+        val board = current.pages[index].isBoard
         // Application cachée (vidéo en cours) : panneau par-dessus, la vidéo reste au premier plan.
-        if (!current.uiVisible && overlayPermission.granted()) {
+        // Sauf le tableau des trains : toujours l'application elle-même, en plein écran.
+        if (!current.uiVisible && overlayPermission.granted() && !board) {
             openPanel(index, command)
             return
         }
+        // Panneau ouvert par-dessus (touche de couleur) : l'application prend sa place, et l'écran
+        // d'avant est celui d'avant le panneau.
+        if (board && current.overlay is Overlay.Panel) dismissOverlay(restoreSelection = true)
+        val before = state.value
         // Un affichage temporaire déjà en cours garde l'écran d'origine.
         val previous = returnTarget ?: ReturnTarget(
-            screen = current.screen,
-            pageId = current.currentPage?.id,
-            focusedIndex = current.focusedIndex,
-            background = !current.uiVisible,
+            screen = before.screen,
+            pageId = before.currentPage?.id,
+            focusedIndex = before.focusedIndex,
+            background = !before.uiVisible,
         )
         cancelAutoReturn()
-        if (current.pages[index].isBoard) rememberBoardReturn(command.page, previous)
+        if (board) rememberBoardReturn(command.page, previous)
         val changesSomething = previous.background || previous.screen != Screen.Pages || previous.pageId != command.page
         if (command.durationSec > 0 && changesSomething) {
             returnTarget = previous
@@ -1057,7 +1071,9 @@ class AppController(
      */
     private fun onHiddenColor(key: ColorKey, current: AppState): Boolean {
         val index = current.pageIndexFor(key) ?: return false
-        show(TvCommand.Show(id = null, page = current.pages[index].id, durationSec = 0))
+        val command = TvCommand.Show(id = null, page = current.pages[index].id, durationSec = 0)
+        // Le panneau, même pour le tableau des trains (que `show` ouvre, lui, dans l'application).
+        if (current.screen == Screen.Pages && overlayPermission.granted()) openPanel(index, command) else show(command)
         return true
     }
 

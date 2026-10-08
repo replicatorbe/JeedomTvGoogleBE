@@ -13,8 +13,8 @@ android {
         applicationId = "be.jeedomtv"
         minSdk = 28
         targetSdk = 35
-        versionCode = 21
-        versionName = "0.10.1"
+        versionCode = 22
+        versionName = "0.10.2"
     }
 
     buildTypes {

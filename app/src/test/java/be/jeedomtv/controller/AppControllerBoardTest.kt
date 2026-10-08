@@ -207,28 +207,27 @@ class AppControllerBoardTest {
     }
 
     @Test
-    fun `app cachee avec permission - show ouvre le tableau en superposition, Retour le ferme`() = runTest {
+    fun `app cachee avec permission - show ouvre l'application sur le tableau, jamais le panneau`() = runTest {
         val factory = FakeDriverFactory(onLayout = { boardLayout() })
         val c = started(factory, visible = false)
         factory.send(TvCommand.Show(1, "p7", durationSec = 0))
         runCurrent()
-        assertEquals(Overlay.Panel("p7", 0), c.state.value.overlay)
+        assertEquals("pas de panneau par-dessus la vidéo", Overlay.None, c.state.value.overlay)
+        assertTrue("l'application passe devant", c.state.value.foregroundRequested)
+        c.onUiVisibilityChanged(true)
         assertEquals("p7", c.page)
-        assertFalse("la vidéo reste devant", c.state.value.foregroundRequested)
-        c.press(Ok, Right, Menu, ChannelUp)
-        assertEquals("p7", c.page)
-        assertTrue(c.state.value.overlay is Overlay.Panel)
+        assertEquals(listOf("p1", "p2", "p3"), c.tabs)
         assertTrue(c.onCommand(Back))
-        assertEquals(Overlay.None, c.state.value.overlay)
+        assertTrue("retour à l'application d'avant", c.state.value.exitRequested)
         assertEquals("p1", c.page)
     }
 
+
     @Test
-    fun `superposition - le tableau reste cinq minutes sans touche`() = runTest {
-        val factory = FakeDriverFactory(onLayout = { boardLayout() })
+    fun `superposition par touche de couleur - le tableau reste cinq minutes sans touche`() = runTest {
+        val factory = FakeDriverFactory(onLayout = { boardLayout(keys = mapOf(ColorKey.Yellow to "p7")) })
         val c = started(factory, visible = false)
-        factory.send(TvCommand.Show(1, "p7", durationSec = 0))
-        runCurrent()
+        c.press(RemoteCommand.Color(ColorKey.Yellow))
         advanceTimeBy(4 * 60_000L)
         runCurrent()
         assertTrue(c.state.value.overlay is Overlay.Panel)
@@ -236,6 +235,7 @@ class AppControllerBoardTest {
         runCurrent()
         assertEquals(Overlay.None, c.state.value.overlay)
     }
+
 
     @Test
     fun `touche de couleur visant explicitement la page cachee - app et panneau`() = runTest {
@@ -335,13 +335,15 @@ class AppControllerBoardTest {
         c.onUiVisibilityChanged(true)
         assertNull("relancée : toujours pas de tableau", c.page)
 
-        // Par-dessus la télé : à la fermeture, pas de tableau non plus.
+        // Application cachée : show la ramène devant ; Retour rend l'application d'avant, sans tableau.
         c.onUiVisibilityChanged(false)
         factory.send(TvCommand.Show(2, "p7", durationSec = 0))
         runCurrent()
-        assertEquals(Overlay.Panel("p7", 0), c.state.value.overlay)
-        c.press(Back)
         assertEquals(Overlay.None, c.state.value.overlay)
+        c.onUiVisibilityChanged(true)
+        assertEquals("p7", c.page)
+        c.press(Back)
+        assertTrue(c.state.value.exitRequested)
         assertNull(c.page)
     }
 
@@ -374,31 +376,37 @@ class AppControllerBoardTest {
     }
 
     @Test
-    fun `superposition - show avec duree ferme le tableau, une touche le garde cinq minutes`() = runTest {
+    fun `app cachee - show avec duree rend l'application d'avant, une touche garde le tableau`() = runTest {
         val factory = FakeDriverFactory(onLayout = { boardLayout() })
         val c = started(factory, visible = false)
         factory.send(TvCommand.Show(1, "p7", durationSec = 60))
         runCurrent()
+        c.onUiVisibilityChanged(true)
+        assertEquals("p7", c.page)
         advanceTimeBy(60_100)
         runCurrent()
-        assertEquals("fin de la durée", Overlay.None, c.state.value.overlay)
+        assertTrue("fin de la durée : l'application d'avant", c.state.value.exitRequested)
         assertEquals("p1", c.page)
+        c.onExitHandled()
+        c.onUiVisibilityChanged(false)
 
         factory.send(TvCommand.Show(2, "p7", durationSec = 60))
         runCurrent()
+        c.onUiVisibilityChanged(true)
         advanceTimeBy(30_000)
         c.press(Ok)
         advanceTimeBy(4 * 60_000L)
         runCurrent()
-        assertTrue("une touche : plus de fermeture à la fin de la durée", c.state.value.overlay is Overlay.Panel)
-        advanceTimeBy(60_100)
-        runCurrent()
-        assertEquals(Overlay.None, c.state.value.overlay)
+        assertEquals("une touche : plus de retour à la fin de la durée", "p7", c.page)
+        assertFalse(c.state.value.exitRequested)
+        c.press(Back)
+        assertTrue(c.state.value.exitRequested)
         assertEquals("p1", c.page)
     }
 
+
     @Test
-    fun `superposition - second show pendant l'affichage, la duree repart et la page d'avant reste`() = runTest {
+    fun `app cachee - second show pendant l'affichage, la duree repart et la page d'avant reste`() = runTest {
         val factory = FakeDriverFactory(onLayout = { boardLayout() })
         val c = started(factory, visible = true)
         c.press(ChannelUp)
@@ -406,24 +414,25 @@ class AppControllerBoardTest {
         advanceTimeBy(3_000)
         factory.send(TvCommand.Show(1, "p7", durationSec = 30))
         runCurrent()
+        c.onUiVisibilityChanged(true)
         advanceTimeBy(20_000)
         factory.send(TvCommand.Show(2, "p7", durationSec = 30))
         runCurrent()
         advanceTimeBy(20_000)
         runCurrent()
-        assertTrue(c.state.value.overlay is Overlay.Panel)
+        assertEquals("p7", c.page)
         advanceTimeBy(10_100)
         runCurrent()
-        assertEquals(Overlay.None, c.state.value.overlay)
         assertEquals("p2", c.page)
+        assertTrue(c.state.value.exitRequested)
     }
 
+
     @Test
-    fun `superposition - notify en une ligne et question par-dessus le tableau, qui reste ensuite`() = runTest {
-        val factory = FakeDriverFactory(onLayout = { boardLayout() })
+    fun `superposition par touche de couleur - notify en une ligne et question par-dessus le tableau`() = runTest {
+        val factory = FakeDriverFactory(onLayout = { boardLayout(keys = mapOf(ColorKey.Yellow to "p7")) })
         val c = started(factory, visible = false)
-        factory.send(TvCommand.Show(1, "p7", durationSec = 0))
-        runCurrent()
+        c.press(RemoteCommand.Color(ColorKey.Yellow))
         factory.send(TvCommand.Notify(2, "Lave-linge", "Terminé"))
         runCurrent()
         assertEquals("dans le tableau, pas en fenêtre à part", "Lave-linge", c.state.value.banner?.title)
@@ -442,19 +451,54 @@ class AppControllerBoardTest {
     }
 
     @Test
-    fun `veille - le tableau par-dessus la tele se ferme, un panneau de tuiles non`() = runTest {
-        val factory = FakeDriverFactory(onLayout = { boardLayout() })
+    fun `show du tableau pendant le panneau - l'application prend sa place, retour a l'ecran d'avant le panneau`() = runTest {
+        val factory = FakeDriverFactory(onLayout = { boardLayout(keys = mapOf(ColorKey.Yellow to "p7", ColorKey.Red to "p1")) })
         val c = started(factory, visible = false)
+        c.press(RemoteCommand.Color(ColorKey.Red))
+        assertTrue(c.state.value.overlay is Overlay.Panel)
+        factory.send(TvCommand.Show(1, "p7", durationSec = 0))
+        runCurrent()
+        assertEquals(Overlay.None, c.state.value.overlay)
+        assertTrue(c.state.value.foregroundRequested)
+        c.onUiVisibilityChanged(true)
+        assertEquals("p7", c.page)
+        c.press(Back)
+        assertTrue(c.state.value.exitRequested)
+        assertEquals("p1", c.page)
+    }
+
+
+    @Test
+    fun `veille - le tableau se ferme (application et superposition), un panneau de tuiles non`() = runTest {
+        val factory = FakeDriverFactory(onLayout = { boardLayout(keys = mapOf(ColorKey.Yellow to "p7", ColorKey.Red to "p1")) })
+        val c = started(factory, visible = false)
+        // Ouvert par Jeedom : l'application, rendue à l'application d'avant à la mise en veille.
         factory.send(TvCommand.Show(1, "p7", durationSec = 120))
         runCurrent()
+        c.onUiVisibilityChanged(true)
+        assertEquals("p7", c.page)
+        c.onScreenChanged(false)
+        assertEquals("p1", c.page)
+        assertTrue(c.state.value.exitRequested)
+        c.onExitHandled()
+        c.onUiVisibilityChanged(false)
+        advanceTimeBy(130_000)
+        runCurrent()
+        assertEquals("plus de retour en attente", "p1", c.page)
+        // Par-dessus la télé (touche de couleur) : fermé aussi.
+        c.onScreenChanged(true)
+        c.press(RemoteCommand.Color(ColorKey.Yellow))
+        assertTrue(c.state.value.overlay is Overlay.Panel)
         c.onScreenChanged(false)
         assertEquals(Overlay.None, c.state.value.overlay)
         assertEquals("p1", c.page)
+        // Un panneau de tuiles reste.
         c.onScreenChanged(true)
         c.press(RemoteCommand.Color(ColorKey.Red))
         c.onScreenChanged(false)
         assertTrue(c.state.value.overlay is Overlay.Panel)
     }
+
 
     // --- Mises à jour en direct --------------------------------------------------------------
 
