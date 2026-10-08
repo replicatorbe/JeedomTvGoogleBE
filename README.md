@@ -1,5 +1,7 @@
 # Jeedom TV
 
+[![Android](https://github.com/replicatorbe/JeedomTvGoogleBE/actions/workflows/android.yml/badge.svg)](https://github.com/replicatorbe/JeedomTvGoogleBE/actions/workflows/android.yml)
+
 Application Android TV (Google TV) pour afficher et piloter à la télécommande des tuiles domotiques servies par le plugin Jeedom `jeetvbe`, sur le réseau local.
 
 Le contrat entre l'application et le plugin est décrit dans [docs/api.md](docs/api.md). Il fait foi pour les deux côtés.
@@ -65,7 +67,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Remplace TvOverlay** : **barre d'état** (heure et indicateurs en permanence dans un coin), **notifications riches** (icône, coin, image) et **vidéo en direct** de la caméra dans une incrustation. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
 - Icônes **Material Design Icons** embarquées (licence Apache 2.0, voir [Licences](#licences-des-composants-tiers)).
-- La version (« Jeedom TV 0.9.4 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.9.5 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -449,6 +451,7 @@ Jeedom TV reprend ce que faisait l'application **TvOverlay** (`com.tabdeveloper.
 - Fenêtre ni focusable ni tactile : la télécommande et la vidéo l'ignorent. Le bandeau d'un message, le panneau et une question passent au-dessus.
 - Dans l'application, sur l'écran des pages, elle prend la place du nom de la TV, en haut à droite : dans un coin du bas, elle masquerait l'aide.
 - Mise à jour en direct par la boucle des changements (état complet de la barre) ; l'heure se redessine une fois par minute, sans autre animation.
+- **Jeedom injoignable** (trois erreurs d'affilée de la boucle des changements, ou aucune réponse depuis une minute) : la barre passe à environ 40 % de son opacité, avec une petite icône orange `mdi:lan-disconnect` juste après l'heure. Rien d'autre, aucune notification ; au premier retour de Jeedom, la barre redevient normale aussitôt.
 - Effacée pendant l'écran de veille de Jeedom TV (il a sa propre horloge) et écran éteint.
 - Sans la permission « afficher par-dessus » : pas de barre hors de l'application (et aucun plantage).
 
