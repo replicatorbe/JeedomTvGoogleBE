@@ -83,6 +83,15 @@ class AppController(
     /** Efface le bandeau `notify`. */
     private var bannerTimer: Job? = null
 
+    /**
+     * Notifications en attente pendant qu'une autre est affichée (3 au plus, la plus ancienne
+     * abandonnée au-delà). Hors de l'état : une vidéo en attente n'occupe aucun décodeur.
+     */
+    private val pendingNotifications = ArrayDeque<Banner>()
+
+    /** Efface la coche de confirmation d'une tuile. */
+    private var confirmTimer: Job? = null
+
     /** Envoi différé (anti-rebond) de l'état de la TV à Jeedom. */
     private var stateTimer: Job? = null
 
@@ -182,6 +191,8 @@ class AppController(
         update { it.copy(uiVisible = visible, foregroundRequested = it.foregroundRequested && !visible) }
         // L'application complète est affichée : la superposition n'a plus lieu d'être.
         if (visible && state.value.overlay != Overlay.None) dismissOverlay(restoreSelection = false)
+        // Bandeau en superposition retiré : la notification suivante en attente, dans l'application.
+        if (visible) pumpNotifications()
         // Une question suit l'écran : dans l'application si elle est affichée, sinon par-dessus.
         val question = state.value.question
         if (question != null) {
@@ -523,14 +534,13 @@ class AppController(
     }
 
     /**
-     * Bandeau de quelques secondes, seulement si quelqu'un regarde l'application, ou va la
-     * regarder : un `show` qui la ramène au premier plan peut précéder le message dans la même réponse.
+     * Ordre `notify` : affiché tout de suite si rien n'est affiché, ou s'il porte le `tag` de la
+     * notification affichée (il la remplace) ; sinon mis en file (même `tag` en attente : remplacé
+     * à sa place ; 3 au plus, la plus ancienne en attente abandonnée). Les questions n'y passent pas.
      */
     private fun notify(command: TvCommand.Notify) {
-        val current = state.value
         // Durée demandée par Jeedom (`duration`), sinon celle de la TV.
         val durationMs = command.durationSec?.let { it * 1000L } ?: BANNER_DURATION_MS
-        // Un nouveau bandeau remplace toujours le précédent (même `tag` ou non) : un seul à la fois.
         val banner = Banner(
             command.title,
             command.message,
@@ -542,32 +552,74 @@ class AppController(
             video = command.video,
             durationMs = durationMs,
         )
+        val shown = displayedBanner()
+        when {
+            shown == null -> {
+                if (!displayNotification(banner)) pumpNotifications()
+            }
+            banner.tag != null && shown.tag == banner.tag -> displayNotification(banner)
+            else -> {
+                val index = pendingNotifications.indexOfFirst { banner.tag != null && it.tag == banner.tag }
+                if (index >= 0) {
+                    pendingNotifications[index] = banner
+                } else {
+                    pendingNotifications.addLast(banner)
+                    while (pendingNotifications.size > MAX_PENDING_NOTIFICATIONS) pendingNotifications.removeFirst()
+                }
+            }
+        }
+    }
 
+    /** Notification affichée (dans l'application, le panneau ou par-dessus la vidéo), ou null. */
+    private fun displayedBanner(): Banner? =
+        state.value.banner ?: (state.value.overlay as? Overlay.Notice)?.banner
+
+    /** Affiche la suivante en attente, si rien n'est affiché. */
+    private fun pumpNotifications() {
+        while (displayedBanner() == null && pendingNotifications.isNotEmpty()) {
+            if (displayNotification(pendingNotifications.removeFirst())) return
+        }
+    }
+
+    /**
+     * Bandeau de quelques secondes, seulement si quelqu'un regarde l'application, ou va la
+     * regarder : un `show` qui la ramène au premier plan peut précéder le message dans la même
+     * réponse. Retourne false s'il ne peut pas s'afficher (application cachée, sans permission).
+     */
+    private fun displayNotification(banner: Banner): Boolean {
+        val current = state.value
         if (!current.uiVisible && !current.foregroundRequested) {
             when {
                 // Le panneau affiche le bandeau en son sein.
                 current.overlay is Overlay.Panel -> Unit
                 // Bandeau en superposition, sans focus : la vidéo ne remarque rien.
                 overlayPermission.granted() -> {
-                    showNoticeOverlay(banner, durationMs)
+                    showNoticeOverlay(banner, banner.durationMs)
                     loadBannerImage(banner)
-                    return
+                    return true
                 }
-                else -> return
+                else -> return false
             }
         }
         update { it.copy(banner = banner) }
         loadBannerImage(banner)
         bannerTimer?.cancel()
         bannerTimer = scope.launch {
-            delay(durationMs)
+            delay(banner.durationMs)
+            bannerTimer = null
             bannerImageJob?.cancel()
             update { it.copy(banner = null) }
+            pumpNotifications()
         }
+        return true
     }
 
-    /** Ordre `dismiss` : retire le bandeau de `tag` [target], dans l'application ou par-dessus. */
+    /**
+     * Ordre `dismiss` : retire la notification de `tag` [target], en attente ou affichée (dans
+     * l'application ou par-dessus) ; la suivante en attente prend sa place.
+     */
     private fun dismissNotification(target: String) {
+        pendingNotifications.removeAll { it.tag == target }
         val current = state.value
         if (current.banner?.tag == target) {
             bannerTimer?.cancel()
@@ -576,6 +628,7 @@ class AppController(
             update { it.copy(banner = null) }
         }
         if ((current.overlay as? Overlay.Notice)?.banner?.tag == target) dismissOverlay(restoreSelection = false)
+        pumpNotifications()
     }
 
     /** Notre écran de veille s'affiche ou se ferme : la barre d'état s'efface pendant ce temps. */
@@ -649,7 +702,13 @@ class AppController(
         if (state.value.overlay is Overlay.Panel) dismissOverlay(restoreSelection = true)
         bannerImageJob?.cancel()
         update { it.copy(overlay = Overlay.Notice(banner)) }
-        restartOverlayTimer(durationMs)
+        overlayTimer?.cancel()
+        overlayTimer = scope.launch {
+            delay(durationMs)
+            overlayTimer = null
+            dismissOverlay(restoreSelection = false)
+            pumpNotifications()
+        }
     }
 
     /** Panneau par-dessus la vidéo, sur la page [index] ; il remplace la superposition courante. */
@@ -668,11 +727,31 @@ class AppController(
                 overlay = Overlay.Panel(command.page, command.durationSec),
             )
         }
-        restartOverlayTimer(if (command.durationSec > 0) command.durationSec * 1000L else PANEL_IDLE_MS)
+        if (command.durationSec > 0) restartOverlayTimer(command.durationSec * 1000L) else restartPanelIdleTimer()
+        // Un bandeau remplacé par le panneau laisse sa place : la suivante en attente s'y affiche.
+        pumpNotifications()
     }
 
+    /**
+     * Fermeture du panneau après une minute sans touche ; les 10 dernières secondes, une fine barre
+     * l'annonce ([AppState.panelClosing]). Toute touche relance l'attente (et efface la barre).
+     */
+    private fun restartPanelIdleTimer() {
+        overlayTimer?.cancel()
+        if (state.value.panelClosing) update { it.copy(panelClosing = false) }
+        overlayTimer = scope.launch {
+            delay(PANEL_IDLE_MS - PANEL_CLOSING_WARNING_MS)
+            update { it.copy(panelClosing = true) }
+            delay(PANEL_CLOSING_WARNING_MS)
+            overlayTimer = null
+            dismissOverlay(restoreSelection = true)
+        }
+    }
+
+    /** Fermeture du panneau à la fin de la durée demandée par Jeedom (sans barre : pas d'inactivité). */
     private fun restartOverlayTimer(delayMs: Long) {
         overlayTimer?.cancel()
+        if (state.value.panelClosing) update { it.copy(panelClosing = false) }
         overlayTimer = scope.launch {
             delay(delayMs)
             overlayTimer = null
@@ -702,7 +781,7 @@ class AppController(
             } else {
                 closed
             }
-            restored.copy(overlay = Overlay.None)
+            restored.copy(overlay = Overlay.None, panelClosing = false)
         }
     }
 
@@ -712,7 +791,7 @@ class AppController(
      * annule la fermeture programmée par la durée de l'ordre ; reste la minute d'inactivité.
      */
     private fun onPanelCommand(command: RemoteCommand, current: AppState): Boolean {
-        restartOverlayTimer(PANEL_IDLE_MS)
+        restartPanelIdleTimer()
         if (command == RemoteCommand.Menu) {
             openFullApp()
             return true
@@ -764,6 +843,7 @@ class AppController(
         update {
             it.copy(
                 overlay = Overlay.None,
+                panelClosing = false,
                 screen = Screen.Pages,
                 error = null,
                 foregroundRequested = !it.uiVisible,
@@ -792,6 +872,7 @@ class AppController(
             overlayTimer?.cancel()
             overlayTimer = null
             panelPausedByQuestion = true
+            if (current.panelClosing) update { it.copy(panelClosing = false) }
         }
         val timeout = command.timeoutSec.takeIf { it > 0 } ?: DEFAULT_QUESTION_TIMEOUT_S
         update {
@@ -937,7 +1018,7 @@ class AppController(
         }
         if (panelPausedByQuestion) {
             panelPausedByQuestion = false
-            if (state.value.overlay is Overlay.Panel) restartOverlayTimer(PANEL_IDLE_MS)
+            if (state.value.overlay is Overlay.Panel) restartPanelIdleTimer()
         }
     }
 
@@ -1280,6 +1361,8 @@ class AppController(
             try {
                 val newValue = target.exec(tile.id, action, value, choice)
                 if (newValue != null && stampOf(tile.id) == sentStamp) applyChanges(listOf(TileChange(tile.id, newValue)))
+                // Jeedom a accepté l'ordre : coche brève (scène et bouton ont déjà leur éclair).
+                if (action != TileAction.Run && action != TileAction.Press) markConfirmed(tile.id)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1297,6 +1380,15 @@ class AppController(
         noticeTimer = scope.launch {
             delay(NOTICE_DURATION_MS)
             update { it.copy(notice = null) }
+        }
+    }
+
+    private fun markConfirmed(tileId: String) {
+        update { it.copy(confirmedTileId = tileId) }
+        confirmTimer?.cancel()
+        confirmTimer = scope.launch {
+            delay(CONFIRM_DURATION_MS)
+            update { s -> if (s.confirmedTileId == tileId) s.copy(confirmedTileId = null) else s }
         }
     }
 
@@ -1356,6 +1448,15 @@ class AppController(
 
         /** Panneau sans durée, ou touché par l'utilisateur : fermé après une minute sans touche. */
         const val PANEL_IDLE_MS = 60_000L
+
+        /** Barre d'avertissement avant la fermeture du panneau pour inactivité. */
+        const val PANEL_CLOSING_WARNING_MS = 10_000L
+
+        /** Notifications en attente au plus (la plus ancienne est abandonnée au-delà). */
+        const val MAX_PENDING_NOTIFICATIONS = 3
+
+        /** Coche de confirmation d'un ordre sur une tuile. */
+        const val CONFIRM_DURATION_MS = 1_000L
     }
 
     private data class PanelReturn(val pageId: String?, val focusedIndex: Int)

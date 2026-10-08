@@ -25,6 +25,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
@@ -85,6 +88,8 @@ fun OverlayPanelView(state: AppState) {
             .padding(start = 32.dp, end = 32.dp, top = 14.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Fermeture pour inactivité imminente : fine barre en haut du panneau (place gardée).
+        Box(Modifier.fillMaxWidth().height(3.dp)) { if (state.panelClosing) ClosingBar() }
         Row(verticalAlignment = Alignment.CenterVertically) {
             PageTabs(state, Modifier.weight(1f))
             Spacer(Modifier.width(16.dp))
@@ -101,7 +106,7 @@ fun OverlayPanelView(state: AppState) {
         }
         // Ordre refusé, Jeedom injoignable : sans ce message, un interrupteur revenu à son état
         // d'avant ne disait pas pourquoi.
-        state.notice?.let { PanelLine(it, JeedomTvColors.Error.copy(alpha = 0.9f), maxLines = 1) }
+        state.notice?.let { PanelLine(it, Color.White.copy(alpha = 0.08f), maxLines = 1, icon = "mdi:alert-circle-outline", iconColor = ErrorRed) }
         val page = state.currentPage
         val adjust = state.adjust
         val adjustTile = state.adjustTile
@@ -140,19 +145,35 @@ private fun PanelSlot(height: Dp, content: @Composable () -> Unit) {
 
 /** Ligne de message dans le panneau (bandeau d'un `notify`, erreur). */
 @Composable
-private fun PanelLine(text: String, background: Color, maxLines: Int) {
-    Text(
-        text,
-        color = Color.White,
-        fontSize = 16.sp,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
+private fun PanelLine(text: String, background: Color, maxLines: Int, icon: String? = null, iconColor: Color = Color.White) {
+    Row(
+        Modifier
             .fillMaxWidth()
             .background(background, RoundedCornerShape(12.dp))
             .padding(horizontal = 16.dp, vertical = 6.dp),
-    )
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        icon?.let { MdiIcon(it, iconColor, 20.dp) }
+        Text(text, color = Color.White, fontSize = 16.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+    }
 }
+
+/**
+ * Fine barre des 10 dernières secondes avant la fermeture du panneau pour inactivité : elle se
+ * vide jusqu'à la fermeture ; toute touche l'efface (le contrôleur relance l'attente).
+ */
+@Composable
+private fun ClosingBar(modifier: Modifier = Modifier) {
+    val remaining = remember { Animatable(1f) }
+    LaunchedEffect(Unit) { remaining.animateTo(0f, tween(PANEL_CLOSING_MS, easing = LinearEasing)) }
+    Canvas(modifier.fillMaxWidth().height(3.dp)) {
+        drawRect(Color.White.copy(alpha = 0.10f))
+        drawRect(SoftBlue, size = size.copy(width = size.width * remaining.value))
+    }
+}
+
+private const val PANEL_CLOSING_MS = 10_000
 
 /** Rappel des touches du panneau : Retour ferme, Menu ouvre l'application complète. */
 fun panelHelpText(state: AppState): String {

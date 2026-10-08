@@ -152,6 +152,10 @@ data class AppState(
     val notice: String? = null,
     /** Tuile qui vient de recevoir un ordre : bref retour visuel (scénario). */
     val flashTileId: String? = null,
+    /** Tuile dont Jeedom vient de confirmer l'ordre : coche verte brève. */
+    val confirmedTileId: String? = null,
+    /** Panneau sur le point de se fermer faute de touche (10 dernières secondes) : fine barre. */
+    val panelClosing: Boolean = false,
     /** La boucle des changements en direct est en erreur. */
     val offline: Boolean = false,
     /** L'écran de l'application est visible (sinon la TV affiche une autre application). */

@@ -258,6 +258,7 @@ internal fun TileGrid(
                     // Focus dans les onglets : aucune tuile n'est mise en avant.
                     focused = state.focusZone == FocusZone.Tiles && index == state.focusedIndex,
                     flashing = tile.id == state.flashTileId,
+                    confirmed = tile.id == state.confirmedTileId,
                     modifier = Modifier.height(tileHeight),
                 )
             }
@@ -339,17 +340,21 @@ private fun ShutterOrder(symbol: String, label: String) {
 /** Message temporaire (ordre refusé, Jeedom injoignable). */
 @Composable
 private fun Notice(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        color = JeedomTvColors.Text,
-        fontSize = 22.sp,
-        modifier = modifier
-            .clip(CardShape)
-            .background(JeedomTvColors.Error.copy(alpha = 0.92f))
-            .border(1.dp, CardOutline, CardShape)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-    )
+    // Même famille que les cartes : fond sombre, pastille d'erreur rouge, texte blanc.
+    Row(
+        modifier
+            .jeedomCard()
+            .padding(start = 14.dp, end = 22.dp, top = 10.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconPill("mdi:alert-circle-outline", ErrorRed, 36.dp)
+        Text(text, color = Color.White, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
 }
+
+/** Rouge des erreurs, assorti aux questions (« Réponse refusée »). */
+internal val ErrorRed = Color(0xFFF28B82)
 
 /** Rappel des touches : une ligne courte, en petit gris, centrée, sans fond. */
 @Composable

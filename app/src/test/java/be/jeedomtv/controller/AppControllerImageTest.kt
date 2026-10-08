@@ -145,13 +145,13 @@ class AppControllerImageTest {
     }
 
     @Test
-    fun `bandeau remplace - chargement annule, nouvelle image`() = runTest {
+    fun `bandeau remplace (meme tag) - chargement annule, nouvelle image`() = runTest {
         val slow = CompletableDeferred<ByteArray>()
         val factory = FakeDriverFactory().apply { onImage = { id -> if (id == "lent") slow.await() else photo } }
         val c = started(factory)
-        factory.send(TvCommand.Notify(1, "", "Premier", image = "lent"))
+        factory.send(TvCommand.Notify(1, "", "Premier", image = "lent", tag = "portier"))
         runCurrent()
-        factory.send(TvCommand.Notify(2, "", "Second", image = "rapide"))
+        factory.send(TvCommand.Notify(2, "", "Second", image = "rapide", tag = "portier"))
         runCurrent()
         slow.complete(byteArrayOf(7))
         runCurrent()

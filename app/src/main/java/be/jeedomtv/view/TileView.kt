@@ -26,6 +26,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -66,8 +69,11 @@ fun TileView(
     focused: Boolean,
     flashing: Boolean,
     modifier: Modifier = Modifier,
+    /** Jeedom vient de confirmer l'ordre : petite coche verte sur la pastille (~1 s). */
+    confirmed: Boolean = false,
 ) {
     val active = tile.isActive
+    val confirmAlpha by animateFloatAsState(if (confirmed) 1f else 0f, tween(FOCUS_MS), label = "coche")
     val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(FOCUS_MS), label = "focus")
     val background by animateColorAsState(
         when {
@@ -104,7 +110,24 @@ fun TileView(
         val nameLines = if (maxHeight >= 124.dp) 2 else 1
         Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconPill(tileMdiIcon(tile), if (active) ActiveAmber else if (flashing) Color.White else Color.White.copy(alpha = 0.85f), 34.dp)
+                Box {
+                    IconPill(tileMdiIcon(tile), if (active) ActiveAmber else if (flashing) Color.White else Color.White.copy(alpha = 0.85f), 34.dp)
+                    // Coche de confirmation, en pastille sur l'icône : discrète, visible à 3 m.
+                    if (confirmAlpha > 0f) {
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .offset(x = 5.dp, y = 5.dp)
+                                .graphicsLayer { alpha = confirmAlpha }
+                                .size(18.dp)
+                                .background(ConfirmGreen, CircleShape)
+                                .border(1.5.dp, Color(0xFF14181E), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MdiIcon("mdi:check-bold", Color(0xFF0E2A14), 12.dp)
+                        }
+                    }
+                }
                 Spacer(Modifier.width(10.dp))
                 tileCornerText(tile)?.let { text ->
                     FitText(
@@ -171,6 +194,9 @@ private fun cornerColor(tile: Tile, active: Boolean): Color = when {
 }
 
 private const val FOCUS_MS = 150
+
+/** Vert de la coche de confirmation (assorti à « Réponse envoyée »). */
+private val ConfirmGreen = Color(0xFF81C995)
 
 /** Fond plein de la tuile sélectionnée, proche du fond de l'application. */
 private val FocusedBase = Color(0xFF14181E)

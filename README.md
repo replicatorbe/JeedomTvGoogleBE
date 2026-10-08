@@ -65,7 +65,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Remplace TvOverlay** : **barre d'état** (heure et indicateurs en permanence dans un coin), **notifications riches** (icône, coin, image) et **vidéo en direct** de la caméra dans une incrustation. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
 - Icônes **Material Design Icons** embarquées (licence Apache 2.0, voir [Licences](#licences-des-composants-tiers)).
-- La version (« Jeedom TV 0.9.2 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.9.3 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -262,9 +262,11 @@ Touches du panneau : les mêmes que sur l'écran des pages (flèches et onglets,
 | Menu | Ouvrir l'application complète sur la même page |
 | Touche de couleur | Page associée ; la touche de la page affichée ferme le panneau |
 
-Le panneau affiche aussi l'indicateur « hors ligne » et le message d'un ordre refusé. Retour et Menu agissent au relâchement de la touche : le relâchement n'arrive pas seul à l'application vidéo une fois le panneau fermé.
+Le panneau affiche aussi l'indicateur « hors ligne » et le message d'un ordre refusé.
 
-Le panneau se ferme seul après la durée de l'ordre. Une touche de la télécommande annule cette fermeture ; il se ferme alors après une minute sans touche, comme un panneau sans durée. Pour Jeedom, le panneau compte comme un affichage : `Visible` vaut 1 et `Page affichée` donne sa page.
+Quand Jeedom confirme un ordre (interrupteur, volet, variateur ou curseur, liste de choix), une petite coche verte apparaît environ une seconde sur la pastille d'icône de la tuile, dans l'application comme dans le panneau. Un ordre refusé n'a pas de coche : la valeur d'avant revient, et le message s'affiche dans une carte sombre avec une pastille d'alerte rouge. Retour et Menu agissent au relâchement de la touche : le relâchement n'arrive pas seul à l'application vidéo une fois le panneau fermé.
+
+Le panneau se ferme seul après la durée de l'ordre. Une touche de la télécommande annule cette fermeture ; il se ferme alors après une minute sans touche, comme un panneau sans durée. Pendant les 10 dernières secondes avant cette fermeture pour inactivité, une fine barre bleue se vide en haut du panneau ; toute touche l'efface et relance la minute. Pour Jeedom, le panneau compte comme un affichage : `Visible` vaut 1 et `Page affichée` donne sa page.
 
 **Permission requise** : « afficher par-dessus les autres applications », accordée par adb (voir [Indispensables au pilotage en arrière-plan](#indispensables-au-pilotage-en-arrière-plan)). Sans elle, l'ordre « Afficher » ouvre l'application comme avant, et le bandeau n'est pas affiché quand l'application est cachée.
 
@@ -456,12 +458,14 @@ L'ordre `notify` (commande `Message`, ou `Notifier (JSON)` au format TvOverlay) 
 
 | Champ | Effet |
 |---|---|
-| `tag` | Identifiant de la notification : une nouvelle notification remplace celle affichée ; `Retirer une notification` (ordre `dismiss`) la retire aussitôt. |
+| `tag` | Identifiant de la notification : une notification de même `tag` remplace aussitôt celle affichée, ou prend la place de celle qui attend ; `Retirer une notification` (ordre `dismiss`) la retire, affichée ou en attente. |
 | `icon`, `iconColor` | Icône Material Design à gauche du texte, quand il n'y a ni image ni vidéo. |
 | `corner` | Coin du bandeau par-dessus une autre application : en haut à droite par défaut. En bas, il se place au-dessus de la barre d'état. |
 | `video` | Flux en direct (`rtsp://` des caméras, ou HLS `…m3u8`), **sans le son**, en incrustation « image dans l'image » (voir ci-dessous). L'image jointe sert d'attente puis de repli si le flux ne vient pas. |
 
-Une notification avec vidéo ou image s'affiche en **incrustation « image dans l'image »** : la vidéo (ou l'image) est la carte, en 16:9, d'environ 400 dp de large (800 px sur la TV), dans le coin demandé à 24 dp des bords, coins arrondis, liseré blanc très fin et ombre douce. Le titre et le message s'incrustent en bas sur un dégradé, avec l'icône MDI dans une pastille ; un badge « ● EN DIRECT » (point rouge qui pulse) s'affiche pendant la lecture, et une fine barre montre le temps restant, dans la couleur de l'icône. Entrée en glissement et fondu depuis le bord du coin, sortie en fondu. Avant la première image : la photo jointe, sinon un fond sombre avec une icône de caméra. Une notification **texte** (portail, alarme, colis, rappels, accueil du soir…) est une carte compacte de la même famille : même largeur, hauteur du texte, grande pastille d'icône à gauche (une cloche si Jeedom n'en donne pas), titre en gras puis message sur trois lignes au plus, barre du temps restant. Une nouvelle notification remplace celle affichée, avec la même entrée.
+Une notification avec vidéo ou image s'affiche en **incrustation « image dans l'image »** : la vidéo (ou l'image) est la carte, en 16:9, d'environ 400 dp de large (800 px sur la TV), dans le coin demandé à 24 dp des bords, coins arrondis, liseré blanc très fin et ombre douce. Le titre et le message s'incrustent en bas sur un dégradé, avec l'icône MDI dans une pastille ; un badge « ● EN DIRECT » (point rouge qui pulse) s'affiche pendant la lecture, et une fine barre montre le temps restant, dans la couleur de l'icône. Entrée en glissement et fondu depuis le bord du coin, sortie en fondu. Avant la première image : la photo jointe, sinon un fond sombre avec une icône de caméra. Une notification **texte** (portail, alarme, colis, rappels, accueil du soir…) est une carte compacte de la même famille : même largeur, hauteur du texte, grande pastille d'icône à gauche (une cloche si Jeedom n'en donne pas), titre en gras puis message sur trois lignes au plus, barre du temps restant.
+
+Les notifications **attendent leur tour** : celle qui arrive pendant qu'une autre est affichée s'affiche à la fin de celle-ci, avec la même entrée. Trois au plus attendent ; au-delà, la plus ancienne en attente est abandonnée. Une notification en attente avec vidéo n'occupe aucun décodeur : le lecteur ne naît qu'à son affichage. Les questions ne passent pas par cette file : elles s'affichent aussitôt.
 
 Les **questions** suivent la même famille : carte sombre au liseré fin, pastille d'icône, réponses en pilules (la sélection en blanc, texte sombre), fine barre du compte à rebours ; la sonnette garde sa grande photo ou vidéo à gauche, avec le badge « ● EN DIRECT ».
 
