@@ -100,7 +100,9 @@ fun PagesView(state: AppState) {
                     state.pages.isEmpty() && state.revision == null ->
                         EmptyMessage("Jeedom injoignable, nouvel essai en cours…")
                     state.pages.isEmpty() -> EmptyMessage("Aucune page configurée pour cette TV dans Jeedom")
-                    page == null || page.tiles.isEmpty() -> EmptyMessage("Aucune tuile sur cette page")
+                    // Toutes les pages sont cachées : elles ne s'ouvrent que par Jeedom ou une touche de couleur.
+                    page == null -> EmptyMessage("Aucune page visible pour cette TV dans Jeedom")
+                    page.tiles.isEmpty() -> EmptyMessage("Aucune tuile sur cette page")
                     else -> TileGrid(
                         page,
                         state,

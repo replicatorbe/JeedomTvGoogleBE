@@ -66,6 +66,9 @@ private val MaxRowHeight = 46.dp
 private val BoardPaddingX = 40.dp
 private val BoardPaddingY = 22.dp
 
+/** Ligne du bandeau d'un `notify` par-dessus la télé (et son écart) : place retirée aux trains. */
+private val BannerLineHeight = 42.dp
+
 /**
  * Le tableau [page] en plein écran. [inOverlay] : par-dessus une autre application (panneau
  * `show`) ; le bandeau d'un `notify` s'y affiche alors en une ligne, et la fine barre annonce
@@ -80,7 +83,8 @@ fun BoardView(page: Page, state: AppState, inOverlay: Boolean = false) {
             .background(BoardColors.Background)
             .padding(horizontal = BoardPaddingX, vertical = BoardPaddingY),
     ) {
-        val (row, trainsPerSection) = boardFit(board, maxHeight)
+        val banner = state.banner?.takeIf { inOverlay }
+        val (row, trainsPerSection) = boardFit(board, maxHeight, reserved = if (banner != null) BannerLineHeight else 0.dp)
         val font = with(LocalDensity.current) { (row * 0.56f).toSp() }
         val small = with(LocalDensity.current) { (row * 0.42f).toSp() }
         Column(Modifier.fillMaxSize()) {
@@ -100,38 +104,34 @@ fun BoardView(page: Page, state: AppState, inOverlay: Boolean = false) {
                         Text("Aucun train", color = BoardColors.Muted, fontSize = font, modifier = Modifier.padding(start = row * 0.8f))
                     }
                 }
-                section.trains.take(trainsPerSection).forEachIndexed { trainIndex, train ->
+                boardTrains(section.trains, trainsPerSection).forEachIndexed { trainIndex, train ->
                     TrainRow(train, row, font, small, stripe = trainIndex % 2 == 1)
                 }
                 section.notes.forEach { NoteLine(it, row, small) }
             }
             Spacer(Modifier.weight(1f))
-            if (inOverlay) {
-                state.banner?.let { banner ->
-                    val waiting = state.waitingNotifications.takeIf { it > 0 }?.let { "  (+$it)" }.orEmpty()
-                    PanelLine(listOf(banner.title, banner.message).filter { it.isNotBlank() }.joinToString(" · ") + waiting, Color.White.copy(alpha = 0.12f), maxLines = 1)
-                    Spacer(Modifier.height(6.dp))
-                }
+            banner?.let {
+                val waiting = state.waitingNotifications.takeIf { it > 0 }?.let { "  (+$it)" }.orEmpty()
+                PanelLine(listOf(it.title, it.message).filter { text -> text.isNotBlank() }.joinToString(" · ") + waiting, Color.White.copy(alpha = 0.12f), maxLines = 1)
+                Spacer(Modifier.height(6.dp))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(boardUpdatedText(board), color = BoardColors.Muted, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            // « hors ligne » à côté de l'heure de lecture : les deux disent si les trains sont à jour.
+            // En haut, il empiétait sur le titre de la première section, à côté de l'horloge.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                Text(boardUpdatedText(board), color = BoardColors.Muted, fontSize = 16.sp)
+                if (state.offline) OfflineIndicator()
+                Spacer(Modifier.weight(1f))
                 Text("Retour fermer", color = BoardColors.Muted, fontSize = 14.sp)
             }
         }
         // Horloge en haut à droite, comme sur le quai.
-        Row(
-            Modifier.align(Alignment.TopEnd).padding(top = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (state.offline) OfflineIndicator()
-            Text(
-                statusClockText(rememberMinuteTime()),
-                color = BoardColors.Text,
-                fontSize = font * 1.15f,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+        Text(
+            statusClockText(rememberMinuteTime()),
+            color = BoardColors.Text,
+            fontSize = font * 1.15f,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 3.dp),
+        )
     }
 }
 
@@ -142,14 +142,15 @@ private const val SECTION_GAP = 0.5f
 internal data class BoardFit(val row: Dp, val trainsPerSection: Int)
 
 /**
- * Hauteur d'une ligne pour que tout le tableau tienne dans [height] : titres (1,1 ligne), trains
- * (« Aucun train » compte pour un), notes (0,8), écarts entre sections et une marge. Si les lignes
- * passeraient sous [MinRowHeight], les derniers trains de chaque section sont laissés de côté
- * (les premiers sont ceux qu'on va prendre), jusqu'à un seul par section.
+ * Hauteur d'une ligne pour que tout le tableau tienne dans [height] (moins [reserved], la ligne du
+ * bandeau d'un `notify`) : titres (1,1 ligne), trains (« Aucun train » compte pour un), notes (0,8),
+ * écarts entre sections et une marge. Si les lignes passeraient sous [MinRowHeight], chaque section
+ * montre moins de trains (voir [boardTrains] : le prochain à prendre et les suivants d'abord),
+ * jusqu'à un seul par section ; les notes (grève, travaux) restent toujours.
  */
-internal fun boardFit(board: Board, height: Dp): BoardFit {
+internal fun boardFit(board: Board, height: Dp, reserved: Dp = 0.dp): BoardFit {
     val sections = board.sections
-    val available = height - 3.dp - 4.dp * sections.size - 30.dp
+    val available = height - reserved - 3.dp - 4.dp * sections.size - 30.dp
     var limit = sections.maxOfOrNull { it.trains.size }?.coerceAtLeast(1) ?: 1
     while (true) {
         val units = sections.sumOf { section ->
@@ -295,6 +296,24 @@ private fun NoteLine(text: String, row: Dp, small: TextUnit) {
         MdiIcon("mdi:alert", BoardColors.Slight, row * 0.5f)
         Text(text, color = BoardColors.Slight, fontSize = small, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
+}
+
+/**
+ * Trains montrés d'une section, [limit] au plus : à partir du prochain train à prendre (ceux d'avant
+ * partent trop tôt pour qu'on les attrape), complétés par ceux d'avant s'il reste de la place.
+ * Un seul ▶ par section : un second `next` (hors contrat) est ignoré.
+ */
+internal fun boardTrains(trains: List<Train>, limit: Int): List<Train> {
+    val next = trains.indexOfFirst { it.next }
+    val single = if (trains.count { it.next } > 1) {
+        trains.mapIndexed { index, train -> if (train.next && index != next) train.copy(next = false) else train }
+    } else {
+        trains
+    }
+    val count = limit.coerceAtLeast(1)
+    if (single.size <= count) return single
+    val start = next.coerceIn(0, single.size - count)
+    return single.subList(start, start + count)
 }
 
 // --- Textes (purs, testables sans Compose) ------------------------------------------------------

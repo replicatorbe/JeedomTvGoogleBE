@@ -238,10 +238,17 @@ class AppController(
      * longtemps que ne le permet le plugin, ou boucle en erreur. Une attente encore valable
      * (écran éteint puis rallumé aussitôt) est gardée : abandonnée, elle resterait ouverte côté
      * Jeedom et pourrait y emporter un ordre, livré une seule fois.
+     *
+     * À la mise en veille, un tableau des trains par-dessus la télé se ferme : personne ne le
+     * regarde, et au réveil (le soir) il masquerait la télé avec les trains du matin.
      */
     fun onScreenChanged(on: Boolean) {
         update { it.copy(screenOn = on) }
-        if (!on) return
+        if (!on) {
+            val current = state.value
+            if (current.overlay is Overlay.Panel && current.currentPage?.isBoard == true) dismissOverlay(restoreSelection = true)
+            return
+        }
         val stale = elapsedMs() - changesCallStartedAt > STALE_CALL_MS
         if (changesJob?.isActive != true || state.value.offline || stale) onNetworkMaybeRestored()
     }
@@ -564,7 +571,10 @@ class AppController(
         update { s ->
             val restored = when (previous.screen) {
                 Screen.Pages -> {
-                    val index = s.pages.indexOfFirst { it.id == previous.pageId }.takeIf { it >= 0 } ?: s.pageIndex
+                    // Page d'avant disparue (ou aucune) : la page d'accueil, jamais la page cachée affichée.
+                    val index = s.pages.indexOfFirst { it.id == previous.pageId }.takeIf { it >= 0 }
+                        ?: s.firstVisiblePageIndex
+                        ?: AppState.NO_PAGE
                     val count = s.pages.getOrNull(index)?.tiles?.size ?: 0
                     s.copy(
                         screen = Screen.Pages,
@@ -573,7 +583,8 @@ class AppController(
                         focusZone = FocusZone.Tiles,
                     )
                 }
-                Screen.Setup -> s.copy(screen = Screen.Setup)
+                // Retour suivant sur la configuration : les pages, pas le tableau qu'on vient de quitter.
+                Screen.Setup -> s.awayFromHiddenPage().copy(screen = Screen.Setup)
                 Screen.Loading -> s
             }
             if (previous.background) {
@@ -607,7 +618,7 @@ class AppController(
         val index = back?.takeIf { it.screen == Screen.Pages }
             ?.let { b -> current.pages.indexOfFirst { it.id == b.pageId && !it.hidden }.takeIf { it >= 0 } }
             ?: current.firstVisiblePageIndex
-            ?: return
+            ?: AppState.NO_PAGE
         update { it.copy(pageIndex = index, focusedIndex = 0, focusZone = FocusZone.Tiles) }
     }
 
@@ -649,7 +660,8 @@ class AppController(
 
     /**
      * Retour sur le tableau : écran (ou application) d'avant son ouverture, comme à la fin d'un
-     * `show`. Sans écran connu : la première page ; s'il n'y en a pas, l'activité quitte (false).
+     * `show`. Sans écran connu : la première page ; si c'est le tableau lui-même, l'activité quitte
+     * (false). Toutes les pages cachées : plus de page affichée, et retour à l'application d'avant.
      */
     private fun leaveBoard(current: AppState): Boolean {
         val pageId = current.currentPage?.id
@@ -660,7 +672,12 @@ class AppController(
             restore(back)
             return true
         }
-        val home = current.firstVisiblePageIndex?.takeIf { it != current.pageIndex } ?: return false
+        val home = current.firstVisiblePageIndex
+        if (home == null) {
+            update { it.copy(pageIndex = AppState.NO_PAGE, focusedIndex = 0, focusZone = FocusZone.Tiles, exitRequested = it.uiVisible) }
+            return true
+        }
+        if (home == current.pageIndex) return false
         update { it.copy(pageIndex = home, focusedIndex = 0, focusZone = FocusZone.Tiles) }
         return true
     }
@@ -1740,13 +1757,19 @@ fun formatValue(value: Double, unit: String): String {
 /**
  * Page voisine de [index] qui n'est pas cachée (elle-même, sinon la suivante, sinon la précédente) :
  * au démarrage ou après la disparition d'une page, une page cachée ne s'affiche pas d'elle-même.
- * Toutes cachées : [index].
+ * Toutes cachées : [AppState.NO_PAGE] (aucune page plutôt que le tableau des trains).
  */
 private fun neighbourVisible(pages: List<Page>, index: Int): Int {
     if (pages.getOrNull(index)?.hidden != true) return index
     return (index until pages.size).firstOrNull { !pages[it].hidden }
         ?: (index downTo 0).firstOrNull { !pages[it].hidden }
-        ?: index
+        ?: AppState.NO_PAGE
+}
+
+/** Page cachée affichée : la page d'accueil à sa place (aucune s'il n'y en a pas) ; sinon inchangé. */
+private fun AppState.awayFromHiddenPage(): AppState {
+    if (currentPage?.hidden != true) return this
+    return copy(pageIndex = firstVisiblePageIndex ?: AppState.NO_PAGE, focusedIndex = 0, focusZone = FocusZone.Tiles)
 }
 
 /** Tableaux des trains reçus par `changes.boards` : remplacés tels quels, seulement sur les pages `board`. */

@@ -152,7 +152,10 @@ data class AppState(
     val status: StatusBar? = null,
     /** Notre écran de veille est affiché : la barre d'état s'efface (il a sa propre horloge). */
     val dreaming: Boolean = false,
-    /** Page affichée (onglet sélectionné). */
+    /**
+     * Page affichée (onglet sélectionné) ; [NO_PAGE] quand aucune ne peut l'être (toutes les pages
+     * sont cachées et aucun `show` n'en a ouvert une).
+     */
     val pageIndex: Int = 0,
     /** Index (dans la page) de la tuile sélectionnée : porté par l'état, pas par le focus Compose. */
     val focusedIndex: Int = 0,
@@ -235,11 +238,12 @@ data class AppState(
         get() = currentPage?.takeIf { it.isBoard }?.board
 
     /**
-     * Onglets : les pages non cachées, avec leur index dans [pages]. Une page cachée affichée
-     * (ouverte par `show` ou une touche de couleur) y figure tant qu'elle l'est.
+     * Onglets : les pages non cachées, avec leur index dans [pages]. Une page cachée n'y figure
+     * jamais, même affichée (ouverte par `show` ou une touche de couleur) : aucun onglet n'est alors
+     * sélectionné.
      */
     val tabPages: List<IndexedValue<Page>>
-        get() = pages.withIndex().filter { !it.value.hidden || it.index == pageIndex }
+        get() = pages.withIndex().filter { !it.value.hidden }
 
     /**
      * Index de la page voisine pour ◀ ▶ et CH+ / CH- ([step] = 1 ou -1), en boucle, sans les pages
@@ -278,5 +282,8 @@ data class AppState(
     companion object {
         /** Colonnes de la grille de tuiles. */
         const val GRID_COLUMNS = 4
+
+        /** [pageIndex] sans page affichée : toutes les pages sont cachées. */
+        const val NO_PAGE = -1
     }
 }

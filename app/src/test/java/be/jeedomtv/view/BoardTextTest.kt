@@ -59,5 +59,24 @@ class BoardTextTest {
         assertTrue(max.row >= 26.dp)
         assertTrue(max.trainsPerSection in 1..3)
         assertEquals(1, boardFit(Board(), height).trainsPerSection)
+        // Bandeau d'un `notify` par-dessus la télé : sa place est retirée aux lignes.
+        val banner = boardFit(Board(listOf(section(6, 2), section(6, 2))), height, reserved = 42.dp)
+        assertTrue(banner.row < usual.row || banner.trainsPerSection < usual.trainsPerSection)
+    }
+
+    @Test
+    fun `trains montres - le prochain et les suivants d'abord, un seul prochain`() {
+        val trains = List(6) { Train("07:0$it", next = it == 3) }
+        assertEquals(listOf("07:03", "07:04"), boardTrains(trains, 2).map { it.time })
+        assertEquals("place en plus : ceux d'avant", listOf("07:02", "07:03", "07:04", "07:05"), boardTrains(trains, 4).map { it.time })
+        assertEquals(trains, boardTrains(trains, 6))
+        val noNext = List(4) { Train("07:1$it") }
+        assertEquals(listOf("07:10", "07:11"), boardTrains(noNext, 2).map { it.time })
+        val last = List(4) { Train("07:2$it", next = it == 3) }
+        assertEquals(listOf("07:22", "07:23"), boardTrains(last, 2).map { it.time })
+        val twice = List(3) { Train("07:3$it", next = it > 0) }
+        assertEquals(listOf(false, true, false), boardTrains(twice, 3).map { it.next })
+        assertEquals(listOf("07:31"), boardTrains(twice, 1).map { it.time })
+        assertEquals(emptyList<Train>(), boardTrains(emptyList(), 2))
     }
 }
