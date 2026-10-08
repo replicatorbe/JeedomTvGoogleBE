@@ -65,7 +65,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Remplace TvOverlay** : **barre d'état** (heure et indicateurs en permanence dans un coin), **notifications riches** (icône, coin, image) et **vidéo en direct** de la caméra dans une incrustation. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
 - Icônes **Material Design Icons** embarquées (licence Apache 2.0, voir [Licences](#licences-des-composants-tiers)).
-- La version (« Jeedom TV 0.9.3 ») s'affiche discrètement sur l'écran de configuration.
+- La version (« Jeedom TV 0.9.4 ») s'affiche discrètement sur l'écran de configuration.
 
 | Touche | Grille | Onglets | Mode réglage (curseur, volet avec position) | Volet sans position |
 |---|---|---|---|---|
@@ -465,7 +465,9 @@ L'ordre `notify` (commande `Message`, ou `Notifier (JSON)` au format TvOverlay) 
 
 Une notification avec vidéo ou image s'affiche en **incrustation « image dans l'image »** : la vidéo (ou l'image) est la carte, en 16:9, d'environ 400 dp de large (800 px sur la TV), dans le coin demandé à 24 dp des bords, coins arrondis, liseré blanc très fin et ombre douce. Le titre et le message s'incrustent en bas sur un dégradé, avec l'icône MDI dans une pastille ; un badge « ● EN DIRECT » (point rouge qui pulse) s'affiche pendant la lecture, et une fine barre montre le temps restant, dans la couleur de l'icône. Entrée en glissement et fondu depuis le bord du coin, sortie en fondu. Avant la première image : la photo jointe, sinon un fond sombre avec une icône de caméra. Une notification **texte** (portail, alarme, colis, rappels, accueil du soir…) est une carte compacte de la même famille : même largeur, hauteur du texte, grande pastille d'icône à gauche (une cloche si Jeedom n'en donne pas), titre en gras puis message sur trois lignes au plus, barre du temps restant.
 
-Les notifications **attendent leur tour** : celle qui arrive pendant qu'une autre est affichée s'affiche à la fin de celle-ci, avec la même entrée. Trois au plus attendent ; au-delà, la plus ancienne en attente est abandonnée. Une notification en attente avec vidéo n'occupe aucun décodeur : le lecteur ne naît qu'à son affichage. Les questions ne passent pas par cette file : elles s'affichent aussitôt.
+Les notifications **attendent leur tour** : celle qui arrive pendant qu'une autre est affichée s'affiche à la fin de celle-ci, avec la même entrée, pour toute sa durée comptée depuis son affichage. Un petit badge « +N » sur la carte dit combien attendent. Trois au plus attendent ; au-delà, la plus ancienne en attente est abandonnée, comme celle qui a attendu plus que sa propre durée et plus de 30 s. Une notification en attente avec vidéo n'occupe aucun décodeur : le lecteur ne naît qu'à son affichage. Les questions ne passent pas par cette file : elles s'affichent aussitôt.
+
+La notification affichée **suit l'écran** avec son temps restant : de l'application à la superposition quand on revient à la télé, de la superposition à l'application ou au panneau quand ils s'ouvrent. Une image qui ne se télécharge pas (ou illisible) laisse la carte texte. Un flux vidéo qui se fige affiche « Reconnexion… » à la place du badge « EN DIRECT ». Écran éteint, les vidéos en superposition s'arrêtent et rendent leur décodeur.
 
 Les **questions** suivent la même famille : carte sombre au liseré fin, pastille d'icône, réponses en pilules (la sélection en blanc, texte sombre), fine barre du compte à rebours ; la sonnette garde sa grande photo ou vidéo à gauche, avec le badge « ● EN DIRECT ».
 
