@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,6 +19,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -58,6 +63,13 @@ internal object BoardColors {
     val Delayed = Color(0xFFFF7A45)
     val Canceled = Color(0xFFFF5252)
     val Alert = Color(0xFFFFB300)
+
+    /** Pluie (phrase de l'IRM, risques horaires) : bleu, à part des retards en jaune et orange. */
+    val Rain = Color(0xFF64B5F6)
+    val RainLight = Color(0xFF64B5F6).copy(alpha = 0.75f)
+
+    /** Fond d'une case horaire de la bande météo. */
+    val HourCell = Color.White.copy(alpha = 0.07f)
     val OnAlert = Color(0xFF0A1D44)
 }
 
@@ -76,9 +88,12 @@ private val BoardPaddingY = 22.dp
 private val BannerLineHeight = 42.dp
 
 /** Bande météo : temps actuel (et horloge), colonnes horaires, écart avec la première section. */
-private val WeatherLineHeight = 40.dp
-private val WeatherHoursHeight = 32.dp
+private val WeatherLineHeight = 36.dp
+private val WeatherHoursHeight = 36.dp
 private val WeatherGap = 6.dp
+
+/** Clé du parapluie placé devant la phrase de pluie (ligne 1 de la bande météo). */
+private const val UMBRELLA = "umbrella"
 
 /**
  * Le tableau [page] en plein écran. [inOverlay] : par-dessus une autre application (panneau
@@ -324,7 +339,7 @@ private fun NoteLine(text: String, row: Dp, small: TextUnit) {
 private fun WeatherBand(weather: BoardWeather) {
     Row(Modifier.fillMaxWidth().height(WeatherLineHeight), verticalAlignment = Alignment.CenterVertically) {
         if (weather.icon.isNotBlank()) {
-            MdiIcon(weather.icon, BoardColors.Text, 30.dp)
+            MdiIcon(weather.icon, BoardColors.Text, 28.dp)
             Spacer(Modifier.width(10.dp))
         }
         val line = buildAnnotatedString {
@@ -338,11 +353,21 @@ private fun WeatherBand(weather: BoardWeather) {
             }
             weatherAlerts(weather).forEach { (text, color) ->
                 if (length > 0) append(" · ")
+                // La pluie porte son parapluie : elle se repère d'un coup d'œil parmi les alertes.
+                if (color == BoardColors.Rain) {
+                    appendInlineContent(UMBRELLA, "☂")
+                    append(" ")
+                }
                 withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) { append(text) }
             }
         }
         Text(
             line,
+            inlineContent = mapOf(
+                UMBRELLA to InlineTextContent(Placeholder(22.sp, 22.sp, PlaceholderVerticalAlign.Center)) {
+                    MdiIcon("mdi:umbrella", BoardColors.Rain, 22.dp)
+                },
+            ),
             color = BoardColors.Text,
             fontSize = 22.sp,
             maxLines = 1,
@@ -361,7 +386,11 @@ private fun WeatherBand(weather: BoardWeather) {
     }
     if (weather.hours.isNotEmpty()) {
         // Six cases de même largeur, même avec moins de colonnes : elles restent alignées à gauche.
-        Row(Modifier.fillMaxWidth().height(WeatherHoursHeight), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().height(WeatherHoursHeight),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             weather.hours.forEach { WeatherHourCell(it, Modifier.weight(1f)) }
             val free = MAX_WEATHER_HOURS - weather.hours.size
             if (free > 0) Spacer(Modifier.weight(free.toFloat()))
@@ -370,25 +399,41 @@ private fun WeatherBand(weather: BoardWeather) {
     Spacer(Modifier.height(WeatherGap))
 }
 
-/** « 09h », icône, « 15° » et le risque de pluie (en couleur d'alerte à partir de 50 %). */
+/**
+ * Une case horaire, sur fond discret pour que les colonnes se distinguent : « 09h », icône et
+ * « 15° » en haut ; dessous, le risque de pluie en bleu avec sa goutte (en gras à partir de 50 %).
+ */
 @Composable
 private fun WeatherHourCell(hour: WeatherHour, modifier: Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(weatherHourText(hour.h), color = BoardColors.Muted, fontSize = 18.sp, maxLines = 1, softWrap = false)
-        if (hour.icon.isNotBlank()) MdiIcon(hour.icon, BoardColors.Text, 24.dp)
-        weatherTempText(hour.temp).takeIf { it.isNotEmpty() }?.let {
-            Text(it, color = BoardColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+    Column(
+        modifier
+            .fillMaxHeight()
+            .background(BoardColors.HourCell, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(weatherHourText(hour.h), color = BoardColors.Muted, fontSize = 14.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false)
+            if (hour.icon.isNotBlank()) MdiIcon(hour.icon, BoardColors.Text, 20.dp)
+            weatherTempText(hour.temp).takeIf { it.isNotEmpty() }?.let {
+                Text(it, color = BoardColors.Text, fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+            }
         }
         weatherRainText(hour.rain)?.let {
             val alert = weatherRainAlert(hour.rain)
-            Text(
-                it,
-                color = if (alert) BoardColors.Slight else BoardColors.Muted,
-                fontSize = 16.sp,
-                fontWeight = if (alert) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-                softWrap = false,
-            )
+            val color = if (alert) BoardColors.Rain else BoardColors.RainLight
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                MdiIcon("mdi:water", color, 13.dp)
+                Text(
+                    it,
+                    color = color,
+                    fontSize = 14.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = if (alert) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
     }
 }
@@ -495,7 +540,7 @@ fun weatherHourText(h: String): String {
 /** « 30 % » ; null sans risque (0 ou inconnu). */
 fun weatherRainText(rain: Int?): String? = rain?.takeIf { it > 0 }?.let { "$it %" }
 
-/** Risque de pluie à signaler en couleur d'alerte : 50 % ou plus. */
+/** Risque de pluie marqué (bleu vif, en gras) : 50 % ou plus. */
 fun weatherRainAlert(rain: Int?): Boolean = (rain ?: 0) >= 50
 
 /** Couleur d'une vigilance : jaune, orange, rouge ; sans niveau, celle des notes. */
@@ -508,7 +553,7 @@ fun weatherWarningColor(level: Int): Color = when (level) {
 
 /** Textes d'alerte de la ligne 1, dans l'ordre : pluie, vigilance (couleur de son niveau), note. */
 fun weatherAlerts(weather: BoardWeather): List<Pair<String, Color>> = listOfNotNull(
-    weather.rain.takeIf { it.isNotBlank() }?.let { it to BoardColors.Slight },
+    weather.rain.takeIf { it.isNotBlank() }?.let { it to BoardColors.Rain },
     weather.warning.takeIf { it.isNotBlank() }?.let { it to weatherWarningColor(weather.warningLevel) },
     weather.note.takeIf { it.isNotBlank() }?.let { it to BoardColors.Slight },
 )

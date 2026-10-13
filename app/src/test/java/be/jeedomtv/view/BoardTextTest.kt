@@ -113,7 +113,7 @@ class BoardTextTest {
     @Test
     fun `meteo - alertes de la ligne 1 et couleur de la vigilance`() {
         assertEquals(
-            listOf("Risque de précipitations dans 2h40" to BoardColors.Slight, "Vigilance jaune — Brouillard" to BoardColors.Yellow),
+            listOf("Risque de précipitations dans 2h40" to BoardColors.Rain, "Vigilance jaune — Brouillard" to BoardColors.Yellow),
             weatherAlerts(contractWeather),
         )
         assertEquals(BoardColors.Delayed, weatherWarningColor(2))
