@@ -40,6 +40,13 @@ class DataStoreSettingsRepository internal constructor(
         }
     }
 
+    override suspend fun loadIgnoredPackages(): Set<String>? =
+        readPreferences()[IGNORED_PACKAGES]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+
+    override suspend fun saveIgnoredPackages(packages: Set<String>) {
+        dataStore.edit { it[IGNORED_PACKAGES] = packages.joinToString(",") }
+    }
+
     private suspend fun readPreferences(): Preferences =
         dataStore.data
             .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -48,5 +55,6 @@ class DataStoreSettingsRepository internal constructor(
     private companion object {
         val HOST = stringPreferencesKey("host")
         val KEY = stringPreferencesKey("key")
+        val IGNORED_PACKAGES = stringPreferencesKey("ignored_packages")
     }
 }

@@ -37,6 +37,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +50,8 @@ import androidx.tv.material3.Text
 import be.jeedomtv.controller.AppController
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.JeedomConfig
+import be.jeedomtv.model.PresenceReport
+import be.jeedomtv.presence.PresencePermissions
 
 /**
  * Formulaire de configuration : adresse de Jeedom et clé de la TV. Ici, la navigation utilise
@@ -132,8 +135,78 @@ fun SetupView(state: AppState, controller: AppController) {
                     Text("Connexion", fontSize = 22.sp)
                 }
             }
+
+            PresenceSection(state, controller)
         }
     }
+}
+
+/**
+ * Diagnostic du centre d'info : chaque permission accordée par adb (tools/setup-tv.sh), les valeurs
+ * signalées à Jeedom, et la liste des lanceurs ignorés au premier plan.
+ */
+@Composable
+private fun PresenceSection(state: AppState, controller: AppController) {
+    var packages by rememberSaveable(state.ignoredPackages) {
+        mutableStateOf(state.ignoredPackages.sorted().joinToString(", "))
+    }
+    Text(
+        "Présence et allumage",
+        color = Color.White,
+        fontSize = 24.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(top = 16.dp),
+    )
+    if (state.permissions.isEmpty()) {
+        Text("Permissions non relevées.", color = CardTextSecondary, fontSize = 18.sp)
+    }
+    state.permissions.forEach { permission ->
+        val (mark, color) = when (permission.granted) {
+            true -> "✓" to JeedomTvColors.Accent
+            false -> "✗" to JeedomTvColors.Error
+            null -> "–" to CardTextMuted
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(mark, color = color, fontSize = 18.sp, modifier = Modifier.width(20.dp))
+            Text(
+                permission.label + if (permission.granted == null) " (sans objet)" else "",
+                color = CardTextSecondary,
+                fontSize = 18.sp,
+            )
+        }
+    }
+    state.presence?.let { Text(presenceSummary(it), color = CardTextSecondary, fontSize = 18.sp) }
+    FormField(
+        label = "Lanceurs et écrans de veille ignorés au premier plan (paquets, séparés par des virgules)",
+        value = packages,
+        onValueChange = { packages = it },
+        imeAction = ImeAction.Done,
+        onDone = { controller.submitIgnoredPackages(packages) },
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Button(onClick = { controller.submitIgnoredPackages(packages) }) {
+            Text("Enregistrer les lanceurs", fontSize = 20.sp)
+        }
+        // Avant de désinstaller : adb refuse de retirer un administrateur qui n'est pas « de test ».
+        if (state.permissions.any { it.label == PresencePermissions.ADMIN_LABEL && it.granted == true }) {
+            val context = LocalContext.current
+            Button(onClick = { PresencePermissions.removeAdmin(context) }) {
+                Text("Retirer l'administrateur", fontSize = 20.sp)
+            }
+        }
+    }
+}
+
+/** Valeurs signalées à Jeedom, en une ligne lisible. */
+internal fun presenceSummary(p: PresenceReport): String {
+    fun flag(value: Boolean?) = when (value) {
+        true -> "oui"
+        false -> "non"
+        null -> "inconnu"
+    }
+    return "inUse : ${flag(p.inUse)} · wokeBy : ${p.wokeBy?.apiName ?: "inconnu"} · " +
+        "humanTookOver : ${flag(p.humanTookOver)}\n" +
+        "premier plan : ${p.foreground ?: "inconnu"} · média : ${flag(p.playing)} · veille : ${flag(p.dreaming)}"
 }
 
 /** Champ texte « TV » : libellé au-dessus, gros texte, bordure accentuée quand il a le focus. */

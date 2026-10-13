@@ -12,11 +12,14 @@ import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.Layout
 import be.jeedomtv.model.Overlay
 import be.jeedomtv.model.Page
+import be.jeedomtv.model.Capabilities
+import be.jeedomtv.model.PermissionStatus
 import be.jeedomtv.model.PendingAction
 import be.jeedomtv.model.Question
 import be.jeedomtv.model.QuestionStatus
 import be.jeedomtv.model.Screen
 import be.jeedomtv.model.SettingsRepository
+import be.jeedomtv.model.ShowMode
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
@@ -60,6 +63,10 @@ class AppController(
     private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
     /** Journal de diagnostic (logcat sur la TV) : boucle des changements et tableaux reçus. */
     private val log: (String) -> Unit = {},
+    /** Allumer et éteindre l'écran (ordres `wake`, `sleep`, champs `wake` et `sleepAfter`). */
+    private val screenPower: ScreenPower = ScreenPower.None,
+    /** Notre paquet : au premier plan, il ne compte pas comme un usage de la TV. */
+    ownPackage: String = "be.jeedomtv",
 ) {
     val state: StateFlow<AppState> = model.state
 
@@ -177,8 +184,33 @@ class AppController(
     /** Configuration dont viennent les ids d'ordres déjà traités (une autre TV a sa propre suite). */
     private var handledCommandsConfig: JeedomConfig? = null
 
+    /** Signaux de présence humaine, `inUse` et propriété de l'allumage. */
+    private val presence = PresenceTracker(ownPackage)
+
+    /** Envoi de l'état sur une touche : jamais à chaque touche. */
+    private val keyThrottle = KeyReportThrottle()
+
+    /**
+     * La présence n'est signalée qu'une fois les permissions relevées ([onCapabilities]) : avant,
+     * l'état n'a pas ces champs (tests, ou application sans moyen de mesure).
+     */
+    private var presenceEnabled = false
+
+    /** `inUse` repasse à faux 10 min après la dernière touche : réévaluation à ce moment. */
+    private var inUseTimer: Job? = null
+
+    /** Ordres avec `wake` en attente de l'allumage effectif de l'écran. */
+    private val ordersAfterWake = mutableListOf<TvCommand>()
+
+    /** Exécute les ordres en attente même si l'écran ne s'est pas allumé à temps. */
+    private var wakeTimer: Job? = null
+
+    /** Le panneau ouvert par un `show` avec `sleepAfter` : mise en veille à la fin de sa durée. */
+    private var panelSleepAfter = false
+
     /** Au lancement : configuration enregistrée → connexion, sinon écran de configuration. */
     fun start() {
+        loadIgnoredPackages()
         launchExclusive {
             update { it.copy(screen = Screen.Loading, error = null) }
             val config = try {
@@ -256,7 +288,10 @@ class AppController(
      * les trains du matin. Dans l'application, retour à l'écran ou à l'application d'avant.
      */
     fun onScreenChanged(on: Boolean) {
+        presence.onScreen(on, elapsedMs())
         update { it.copy(screenOn = on) }
+        refreshPresence()
+        if (on) runOrdersAfterWake()
         if (!on) {
             val current = state.value
             if (current.currentPage?.isBoard != true) return
@@ -284,6 +319,114 @@ class AppController(
     /** La vue a mis l'application en arrière-plan suite à [AppState.exitRequested]. */
     fun onExitHandled() {
         update { it.copy(exitRequested = false) }
+    }
+
+    // --- Présence humaine et allumage --------------------------------------------------------
+
+    /**
+     * Permissions relevées : ce que la TV sait mesurer ou faire. Le premier relevé active la
+     * présence dans l'état signalé ; chaque changement de [capabilities] est renvoyé à Jeedom.
+     */
+    fun onCapabilities(capabilities: Capabilities, permissions: List<PermissionStatus>) {
+        presenceEnabled = true
+        presence.onCapabilities(capabilities)
+        if (state.value.permissions != permissions) update { it.copy(permissions = permissions) }
+        refreshPresence()
+    }
+
+    /** Liste enregistrée des lanceurs ignorés, sinon celle par défaut. */
+    private fun loadIgnoredPackages() {
+        scope.launch {
+            val saved = try {
+                settings.loadIgnoredPackages()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            setIgnoredPackages(saved ?: PresenceTracker.DEFAULT_IGNORED_PACKAGES)
+        }
+    }
+
+    /** Lanceurs et écrans de veille ignorés au premier plan (liste configurable). */
+    fun setIgnoredPackages(packages: Set<String>) {
+        presence.ignoredPackages = packages
+        update { it.copy(ignoredPackages = presence.ignoredPackages) }
+        refreshPresence()
+    }
+
+    /** Liste saisie à l'écran de configuration : appliquée et enregistrée. */
+    fun submitIgnoredPackages(text: String) {
+        val packages = PresenceTracker.parsePackages(text)
+        setIgnoredPackages(packages)
+        scope.launch {
+            try {
+                settings.saveIgnoredPackages(packages)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("liste des lanceurs non enregistrée")
+            }
+        }
+    }
+
+    /**
+     * Une touche de la télécommande, observée par le service d'accessibilité (jamais consommée
+     * pour autant). L'état n'est renvoyé que selon [KeyReportThrottle].
+     */
+    fun onRemoteKeyObserved() {
+        if (!state.value.screenOn) return
+        val now = elapsedMs()
+        presence.onKey(now)
+        inUseTimer?.cancel()
+        inUseTimer = scope.launch {
+            delay(PresenceTracker.KEY_IN_USE_MS)
+            inUseTimer = null
+            refreshPresence()
+        }
+        val changed = refreshPresence()
+        if (presenceEnabled && keyThrottle.onKey(now) && !changed) resendState()
+    }
+
+    /** Application au premier plan (null : inconnue). */
+    fun onForegroundApp(packageName: String?) {
+        if (presence.onForeground(packageName, elapsedMs())) refreshPresence()
+    }
+
+    /** Un média est-il en lecture (null : inconnu). */
+    fun onMediaPlaying(playing: Boolean?) {
+        if (playing == presence.playing) return
+        presence.onPlaying(playing, elapsedMs())
+        refreshPresence()
+    }
+
+    /** Écran de veille du système (Ambiant ou le nôtre) affiché ou fermé. */
+    fun onSystemDreaming(dreaming: Boolean) {
+        if (dreaming == presence.dreaming) return
+        presence.onDreaming(dreaming)
+        refreshPresence()
+    }
+
+    /** Recalcule la présence ; retourne true si l'état signalé a changé (il part alors à Jeedom). */
+    private fun refreshPresence(): Boolean {
+        if (!presenceEnabled) return false
+        val report = presence.report(elapsedMs())
+        if (report == state.value.presence) return false
+        update { it.copy(presence = report) }
+        return true
+    }
+
+    /** Règle d'or : Jeedom a allumé l'écran, personne n'a pris la main, aucune question affichée. */
+    private fun mayAutoSleep(): Boolean = presence.ownership.mayAutoSleep(questionShown = state.value.question != null)
+
+    /** Mise en veille d'elle-même (fin d'un `show` avec `sleepAfter`) : seulement si la règle d'or tient. */
+    private fun sleepIfGoldenRule(reason: String) {
+        if (!mayAutoSleep()) {
+            log("$reason : pas de mise en veille (wokeBy=${presence.ownership.wokeBy}, humanTookOver=${presence.ownership.humanTookOver})")
+            return
+        }
+        log("$reason : mise en veille")
+        if (!screenPower.sleep()) log("mise en veille impossible")
     }
 
     // --- Connexion ---------------------------------------------------------------------------
@@ -582,6 +725,45 @@ class AppController(
             if (!handledCommandIds.add(id)) return // Déjà traité.
             if (handledCommandIds.size > MAX_HANDLED_IDS) handledCommandIds.remove(handledCommandIds.first())
         }
+        if (command.wake) {
+            val now = elapsedMs()
+            // Écran déjà allumé : sans effet, sauf l'attribution de l'allumage (règle 3).
+            presence.onWakeOrder(now)
+            refreshPresence()
+            if (!state.value.screenOn) {
+                if (screenPower.wake()) {
+                    log("allumage de l'écran demandé")
+                    presence.onWakeRequested(now)
+                    presence.markOwnTransition(now)
+                    // L'ordre s'exécute écran allumé : ses durées comptent depuis l'affichage réel.
+                    if (command !is TvCommand.Wake) ordersAfterWake += command
+                    if (wakeTimer?.isActive != true) {
+                        wakeTimer = scope.launch {
+                            delay(WAKE_TIMEOUT_MS)
+                            wakeTimer = null
+                            runOrdersAfterWake()
+                        }
+                    }
+                    return
+                }
+                // Sans permission : l'ordre est exécuté s'il peut l'être ; l'état le dit (capabilities).
+                log("allumage de l'écran impossible")
+            }
+        }
+        dispatch(command)
+    }
+
+    /** Écran allumé (ou délai dépassé) : les ordres qui attendaient l'allumage s'exécutent, dans l'ordre. */
+    private fun runOrdersAfterWake() {
+        wakeTimer?.cancel()
+        wakeTimer = null
+        if (ordersAfterWake.isEmpty()) return
+        val orders = ordersAfterWake.toList()
+        ordersAfterWake.clear()
+        orders.forEach(::dispatch)
+    }
+
+    private fun dispatch(command: TvCommand) {
         when (command) {
             is TvCommand.Show -> show(command)
             is TvCommand.Notify -> notify(command)
@@ -589,7 +771,42 @@ class AppController(
             is TvCommand.Exit -> exit()
             is TvCommand.Ask -> ask(command)
             is TvCommand.AskClose -> askClose(command)
+            is TvCommand.Wake -> Unit
+            is TvCommand.Sleep -> sleep(command)
         }
+    }
+
+    /** Ordre `sleep` : veille si la règle d'or est vraie (ou `force`), sinon rien, et l'état le dit. */
+    private fun sleep(command: TvCommand.Sleep) {
+        if (!PresenceRules.sleepAllowed(command.force, mayAutoSleep())) {
+            log("veille refusée (wokeBy=${presence.ownership.wokeBy}, humanTookOver=${presence.ownership.humanTookOver}, question=${state.value.question != null})")
+            if (presenceEnabled) resendState()
+            return
+        }
+        log(if (command.force) "veille forcée" else "veille demandée")
+        if (!screenPower.sleep()) {
+            log("mise en veille impossible")
+            if (presenceEnabled) resendState()
+        }
+    }
+
+    /**
+     * `show` en `mode: auto` sur une TV en usage : aucune page ni changement d'application, une
+     * notification discrète (non focalisable) faite de `fallback` à la place.
+     */
+    private fun showFallback(command: TvCommand.Show) {
+        val fallback = command.fallback
+        val pageName = state.value.pages.firstOrNull { it.id == command.page }?.name.orEmpty()
+        log("show ${command.page} en mode auto : TV en usage, notification discrète")
+        notify(
+            TvCommand.Notify(
+                id = null,
+                title = fallback?.title ?: pageName,
+                message = fallback?.message.orEmpty(),
+                durationSec = fallback?.durationSec ?: DEFAULT_FALLBACK_S,
+                icon = fallback?.icon,
+            )
+        )
     }
 
     /**
@@ -602,6 +819,10 @@ class AppController(
         if (current.screen == Screen.Loading || (current.screen == Screen.Setup && current.uiVisible)) return
         val index = current.pages.indexOfFirst { it.id == command.page }
         if (index < 0) return
+        if (PresenceRules.showDiscreetly(command.mode, presence.inUse(elapsedMs()))) {
+            showFallback(command)
+            return
+        }
         val board = current.pages[index].isBoard
         // Application cachée (vidéo en cours) : panneau par-dessus, la vidéo reste au premier plan.
         // Sauf le tableau des trains : toujours l'application elle-même, en plein écran.
@@ -623,13 +844,16 @@ class AppController(
         cancelAutoReturn()
         if (board) rememberBoardReturn(command.page, previous)
         val changesSomething = previous.background || previous.screen != Screen.Pages || previous.pageId != command.page
-        if (command.durationSec > 0 && changesSomething) {
+        if (command.durationSec > 0 && (changesSomething || command.sleepAfter)) {
             returnTarget = previous
             returnTimer = scope.launch {
                 delay(command.durationSec * 1000L)
                 returnTimer = null
                 returnTarget = null
+                // Retour d'abord : au réveil suivant, la TV montre l'application d'avant, pas la page.
+                // Ce retour vient de nous, il ne compte pas comme une prise en main.
                 restore(previous)
+                if (command.sleepAfter) sleepIfGoldenRule("fin de l'affichage de ${command.page}")
             }
         }
         update {
@@ -1013,6 +1237,7 @@ class AppController(
                 banner = (it.overlay as? Overlay.Notice)?.banner ?: it.banner,
             )
         }
+        panelSleepAfter = command.sleepAfter && command.durationSec > 0
         if (command.durationSec > 0) restartOverlayTimer(command.durationSec * 1000L) else restartPanelIdleTimer()
         relocateNotification()
     }
@@ -1022,6 +1247,8 @@ class AppController(
      * l'annonce ([AppState.panelClosing]). Toute touche relance l'attente (et efface la barre).
      */
     private fun restartPanelIdleTimer() {
+        // Touche dans le panneau (ou panneau sans durée) : plus de mise en veille à sa fermeture.
+        panelSleepAfter = false
         overlayTimer?.cancel()
         if (state.value.panelClosing) update { it.copy(panelClosing = false) }
         // Un tableau des trains se lit sans toucher la télécommande : il reste plus longtemps.
@@ -1042,7 +1269,10 @@ class AppController(
         overlayTimer = scope.launch {
             delay(delayMs)
             overlayTimer = null
+            val sleepAfter = panelSleepAfter
+            panelSleepAfter = false
             dismissOverlay(restoreSelection = true)
+            if (sleepAfter) sleepIfGoldenRule("fin du panneau")
         }
     }
 
@@ -1344,8 +1574,14 @@ class AppController(
 
     /** Toute modification du modèle passe par ici : l'état de la TV est renvoyé s'il a changé. */
     private fun update(transform: (AppState) -> AppState) {
+        val before = state.value
         model.update(transform)
-        val tvState = state.value.tvState
+        val after = state.value
+        // L'application change elle-même ce qui est au premier plan : ce n'est pas un humain.
+        if ((after.foregroundRequested && !before.foregroundRequested) || (after.exitRequested && !before.exitRequested)) {
+            presence.markOwnTransition(elapsedMs())
+        }
+        val tvState = after.tvState
         if (tvState != lastScheduledState) {
             lastScheduledState = tvState
             scheduleStateSend()
@@ -1364,7 +1600,10 @@ class AppController(
             delay(STATE_DEBOUNCE_MS)
             val target = driver ?: return@launch
             try {
-                target.state(state.value.tvState.copy(appVersion = appVersion))
+                val now = elapsedMs()
+                val tvState = state.value.tvState
+                if (tvState.presence != null) keyThrottle.onSent(now)
+                target.state(tvState.copy(appVersion = appVersion, idleSeconds = presence.idleSeconds(now)))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1741,6 +1980,12 @@ class AppController(
         const val FLASH_DURATION_MS = 600L
         const val BANNER_DURATION_MS = 8_000L
         const val STATE_DEBOUNCE_MS = 300L
+
+        /** Ordre avec `wake` : exécuté au plus tard après ce délai, même sans écran allumé. */
+        const val WAKE_TIMEOUT_MS = 10_000L
+
+        /** Durée par défaut de la notification discrète d'un `show` en `mode: auto`. */
+        const val DEFAULT_FALLBACK_S = 15
         const val MAX_HANDLED_IDS = 100
 
         /** Une attente longue dure 25 s au plus côté plugin : au-delà de 35 s, la connexion est morte. */

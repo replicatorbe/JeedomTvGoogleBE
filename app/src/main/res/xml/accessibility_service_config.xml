@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Service des touches de couleur : il filtre les touches (seules les quatre touches de couleur
-  sont gardées, voir ColorKeyFilter), ne lit aucun contenu d'écran, et ne reçoit que les
-  annonces de l'application elle-même (aucun événement des autres applications).
+  Service d'accessibilité de Jeedom TV :
+  - il observe les touches pour savoir si quelqu'un se sert de la TV, sans en consommer aucune ;
+    il ne garde que les quatre touches de couleur associées à une page (voir ColorKeyFilter) ;
+  - il reçoit les changements de fenêtre (paquet et classe seulement) pour connaître l'application
+    au premier plan ;
+  - il ne lit aucun contenu d'écran.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/color_keys_service_description"
     android:summary="@string/color_keys_service_summary"
-    android:accessibilityEventTypes="typeAnnouncement"
-    android:packageNames="be.jeedomtv"
+    android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagRequestFilterKeyEvents"
     android:canRequestFilterKeyEvents="true"

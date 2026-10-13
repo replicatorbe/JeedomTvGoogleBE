@@ -19,6 +19,8 @@ import be.jeedomtv.model.MAX_WEATHER_TEXT
 import be.jeedomtv.model.Page
 import be.jeedomtv.model.PageType
 import be.jeedomtv.model.PingInfo
+import be.jeedomtv.model.ShowFallback
+import be.jeedomtv.model.ShowMode
 import be.jeedomtv.model.StatusBar
 import be.jeedomtv.model.StatusItem
 import be.jeedomtv.model.StatusShape
@@ -147,6 +149,23 @@ class JeedomHttpDriver internal constructor(
             // null explicite : « hors écran des pages ».
             put("page", state.page?.let { JsonPrimitive(it) } ?: JsonNull)
             state.appVersion?.let { put("appVersion", it) }
+            // Présence humaine et allumage : seulement quand l'application les mesure.
+            state.presence?.let { p ->
+                put("inUse", p.inUse)
+                put("idleSeconds", state.idleSeconds?.let { JsonPrimitive(it) } ?: JsonNull)
+                put("foreground", p.foreground?.let { JsonPrimitive(it) } ?: JsonNull)
+                put("playing", p.playing?.let { JsonPrimitive(it) } ?: JsonNull)
+                put("dreaming", p.dreaming)
+                put("wokeBy", p.wokeBy?.let { JsonPrimitive(it.apiName) } ?: JsonNull)
+                put("humanTookOver", p.humanTookOver)
+                put("capabilities", buildJsonObject {
+                    put("keys", p.capabilities.keys)
+                    put("foreground", p.capabilities.foreground)
+                    put("media", p.capabilities.media)
+                    put("wake", p.capabilities.wake)
+                    put("sleep", p.capabilities.sleep)
+                })
+            }
         }
         post("state", body)
     }
@@ -650,7 +669,20 @@ private data class CommandDto(
     val iconColor: String? = null,
     val corner: String? = null,
     val video: String? = null,
+    /** `show` : `full` (défaut) ou `auto`. */
+    val mode: String? = null,
+    /** `show` en `mode: auto` : contenu de la notification discrète. */
+    val fallback: JsonElement? = null,
+    /** `show`, `notify`, `ask` : allumer l'écran d'abord. */
+    val wake: JsonElement? = null,
+    /** `show` : mise en veille à la fin de `duration` si la règle d'or est vraie. */
+    val sleepAfter: JsonElement? = null,
+    /** `sleep` : veille sans condition. */
+    val force: JsonElement? = null,
 ) {
+    private val wakeFirst: Boolean
+        get() = wake.asFlag() ?: false
+
     private val imageId: String?
         get() = image?.takeIf { it.isNotBlank() }
 
@@ -666,8 +698,17 @@ private data class CommandDto(
     /** Type inconnu ou `show` sans page : ignoré, comme le demande le contrat. */
     fun toCommand(): TvCommand? = when (type) {
         "show" -> page?.takeIf { it.isNotBlank() }?.let {
-            TvCommand.Show(orderId, it, (duration ?: 0.0).toInt().coerceAtLeast(0))
+            TvCommand.Show(
+                orderId, it, (duration ?: 0.0).toInt().coerceAtLeast(0),
+                // Mode inconnu : comportement actuel.
+                mode = if (mode?.trim()?.lowercase() == "auto") ShowMode.Auto else ShowMode.Full,
+                fallback = parseFallback(fallback),
+                wake = wakeFirst,
+                sleepAfter = sleepAfter.asFlag() ?: false,
+            )
         }
+        "wake" -> TvCommand.Wake(orderId)
+        "sleep" -> TvCommand.Sleep(orderId, force = force.asFlag() ?: false)
         "notify" -> TvCommand.Notify(
             orderId, title.orEmpty(), message.orEmpty(), imageId,
             // Contrat : 3 à 120 s ; une valeur hors bornes y est ramenée.
@@ -677,6 +718,7 @@ private data class CommandDto(
             iconColor = parseColor(iconColor),
             corner = Corner.fromApi(corner, Corner.TopEnd),
             video = VideoUrl.of(video),
+            wake = wakeFirst,
         )
         "dismiss" -> target.asText()?.takeIf { it.isNotBlank() }?.let { TvCommand.Dismiss(orderId, it) }
         "exit" -> TvCommand.Exit(orderId)
@@ -702,11 +744,23 @@ private data class CommandDto(
                     timeoutSec = (timeout ?: 0.0).toInt().coerceAtLeast(0),
                     image = imageId,
                     video = VideoUrl.of(video),
+                    wake = wakeFirst,
                 )
             }
         }
         else -> null
     }
+}
+
+/** `fallback` d'un `show` : objet, champs facultatifs ; durée ramenée aux bornes d'un `notify`. */
+private fun parseFallback(element: JsonElement?): ShowFallback? {
+    val fields = element as? JsonObject ?: return null
+    return ShowFallback(
+        title = fields["title"].asText()?.takeIf { it.isNotBlank() },
+        message = fields["message"].asText()?.takeIf { it.isNotBlank() },
+        icon = fields["icon"].asText()?.takeIf { it.isNotBlank() },
+        durationSec = fields["duration"].asText()?.trim()?.toDoubleOrNull()?.toInt()?.coerceIn(MIN_NOTIFY_S, MAX_NOTIFY_S),
+    )
 }
 
 private const val MIN_NOTIFY_S = 3

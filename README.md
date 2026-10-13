@@ -105,14 +105,17 @@ app/src/main/java/be/jeedomtv/
 ├── JeedomTvApp   Racine de composition : Modèle et Contrôleur vivent aussi longtemps que le processus
 ├── view/OverlayWindowManager   Fenêtres de superposition (bandeau, panneau, question) hors de toute activité
 ├── JeedomTvService / BootReceiver   Service au premier plan (boucle des changements permanente), démarré avec la TV
-├── ColorKeyService   Service d'accessibilité : touches de couleur captées par-dessus les autres applications
+├── ColorKeyService   Service d'accessibilité : touches de couleur par-dessus les autres applications, touches et application au premier plan observées (présence)
+├── presence/     Présence humaine et allumage : relevés (PresenceMonitor), permissions, écouteur média,
+│                 allumage (WakeActivity) et mise en veille (administrateur de l'appareil)
 ├── view/HomeDreamService   Écran de veille (DreamService) : horloge et infos du bandeau
 ├── view/StatusBarView, LiveVideo, MdiIcon   Barre d'état, vidéo en direct (Media3), icônes Material Design
 ├── model/        État de l'application (AppModel, AppState), configuration, pages et tuiles
 │   └── driver/   Interface JeedomDriver + implémentation HTTP (OkHttp, kotlinx.serialization)
 ├── controller/   AppController (écrans, sélection, réglage, confirmation, changements en direct)
 │                 ordres de Jeedom, état signalé, RemoteKeyMapper (touches → commandes)
-│                 et ColorKeyFilter (touches gardées par le service d'accessibilité)
+│                 et ColorKeyFilter (touches gardées par le service d'accessibilité) ;
+│                 WakeOwnership, PresenceTracker (inUse, wokeBy, envoi de l'état sur une touche)
 └── view/         Écrans Compose for TV : configuration, chargement, pages, tuile, confirmation
 ```
 
@@ -165,6 +168,8 @@ adb shell am start -n be.jeedomtv/.view.MainActivity \
 ## Optimiser la TV (adb, sans root)
 
 Réglages utiles sur une TCL Google TV (Android 11). Ils sont réversibles et survivent à un redémarrage. À lancer depuis une machine du réseau, après `adb connect <IP_TV>:5555`.
+
+**Le plus simple** : `tools/setup-tv.sh <IP_TV>:5555` accorde puis vérifie toutes les permissions de l'application (superposition, accessibilité, présence, allumage, mise en veille, économie d'énergie, démarrage automatique), sans rien afficher sur la TV. Idempotent : à relancer après chaque `adb install -r`. Voir [Présence humaine et allumage](#présence-humaine-et-allumage-centre-dinfo). Le détail des commandes suit.
 
 ### Indispensables au pilotage en arrière-plan
 
@@ -374,7 +379,7 @@ Règle du service, pour qu'aucune touche ne soit traitée deux fois ni perdue :
 
 - il ne garde **que** les quatre touches de couleur, et seulement si une page leur est associée (rouge par défaut) et qu'une autre application a le focus. Il consomme alors l'appui et le relâchement, et transmet la touche au contrôleur ;
 - quand l'application, le panneau ou une question est affiché, il laisse passer : la fenêtre de l'application reçoit la touche elle-même. Seule exception : si la touche ferme le panneau, son relâchement est gardé, pour ne pas arriver seul à la vidéo ;
-- toutes les autres touches passent, sans exception. Le service ne lit pas le contenu de l'écran et ne reçoit aucun événement des autres applications.
+- toutes les autres touches passent, sans exception. Le service ne lit pas le contenu de l'écran ; des autres applications, il ne reçoit que les changements de fenêtre (paquet et classe), pour la [présence](#présence-humaine-et-allumage-centre-dinfo).
 
 Sans le service (pas activé, ou désactivé par Android), l'application marche comme avant : les touches de couleur fonctionnent seulement dans l'application et sur le panneau.
 
@@ -384,6 +389,28 @@ Bon à savoir (constaté sur l'émulateur Android 13 ; à confirmer sur la TCL) 
 - **Mise à jour par adb** (`adb install -r`, debug comme release) : le service est resté activé et relié aussitôt.
 - **Arrêt forcé** (`adb shell am force-stop be.jeedomtv`, ou « Forcer l'arrêt » dans les paramètres) : Android **retire le service du réglage**. Il faut relancer les commandes d'activation ci-dessus.
 - `adb shell input keyevent KEYCODE_PROG_RED` **n'atteint pas** les services d'accessibilité (les touches injectées ne passent pas par leur filtre) : pour essayer par-dessus une autre application, il faut la vraie télécommande. Dans l'application ou sur le panneau, `input keyevent` fonctionne.
+
+## Présence humaine et allumage (centre d'info)
+
+Jeedom peut allumer la TV pour une info, puis l'éteindre, sans jamais déranger ni éteindre quelqu'un qui la regarde. La TV mesure elle-même si quelqu'un s'en sert et le signale dans `state` ; le contrat complet est dans [docs/api.md](docs/api.md#présence-humaine-et-allumage-centre-dinfo).
+
+| Signal | Moyen | Permission (accordée par `tools/setup-tv.sh`) |
+|---|---|---|
+| Touches de la télécommande | service d'accessibilité, qui **observe** les touches sans en consommer aucune (seules les touches de couleur restent gardées, voir plus haut) | accessibilité |
+| Application au premier plan | même service (changements de fenêtre, activités seulement), à défaut statistiques d'utilisation | accessibilité, `GET_USAGE_STATS` |
+| Média en lecture | sessions média (`MediaSessionManager`), à défaut `AudioManager.isMusicActive` | écouteur de notifications |
+| Écran, écran de veille | `ACTION_SCREEN_ON/OFF`, `ACTION_DREAMING_STARTED/STOPPED` | — |
+| Allumer l'écran | activité invisible `setTurnScreenOn` démarrée depuis l'arrière-plan | superposition (et `TURN_SCREEN_ON` dès Android 14) |
+| Éteindre l'écran | `DevicePolicyManager.lockNow()`, à défaut l'action « verrouiller l'écran » du service d'accessibilité | administrateur de l'appareil |
+
+- `inUse` : écran allumé hors écran de veille, et une touche depuis moins de 10 min, un média en lecture, ou au premier plan une application autre que Jeedom TV, un lanceur ou un écran de veille.
+- `wokeBy` / `humanTookOver` : qui a allumé l'écran (Jeedom ou un humain), et si quelqu'un a pris la main depuis un allumage par Jeedom. La TV ne se met en veille d'elle-même (`sleep` sans `force`, `sleepAfter`) que si Jeedom l'a allumée, que personne n'y a touché et qu'aucune question n'est affichée.
+- L'état est renvoyé à chaque changement, à la première touche après une minute de calme, puis au plus une fois par minute tant que des touches arrivent : jamais à chaque touche.
+- `show` en `mode: auto` : la page si la TV n'est pas en usage, sinon une notification discrète (`fallback`) sans changer d'application. Sans `mode` : comportement inchangé.
+
+**Écran de configuration** (touche Menu) : l'état de chaque permission (✓ / ✗), les valeurs signalées (`inUse`, `wokeBy`, `humanTookOver`, premier plan, média) et la liste des **lanceurs et écrans de veille** ignorés au premier plan (par défaut `com.google.android.apps.tv.launcherx` et `com.google.android.apps.tv.dreamx`). Pour repérer le paquet de l'application TV ou HDMI du fabricant : `adb logcat -s JeedomTv | grep "premier plan"`.
+
+**Désinstaller** : l'administrateur de l'appareil empêche la désinstallation, et adb ne peut pas le retirer (`dpm remove-active-admin` n'accepte que les administrateurs de test). Le retirer d'abord depuis l'écran de configuration (bouton « Retirer l'administrateur »), puis désinstaller ; `tools/setup-tv.sh` le remet.
 
 ## Questions de Jeedom
 

@@ -198,6 +198,15 @@ data class AppState(
     val overlay: Overlay = Overlay.None,
     /** Question de Jeedom en cours. */
     val question: Question? = null,
+    /**
+     * Présence humaine et propriété de l'allumage, signalées dans `state` ; null tant que
+     * l'application ne mesure rien (tests, ou avant le premier relevé des permissions).
+     */
+    val presence: PresenceReport? = null,
+    /** Permissions accordées par adb, pour le diagnostic de l'écran de configuration. */
+    val permissions: List<PermissionStatus> = emptyList(),
+    /** Lanceurs et écrans de veille ignorés au premier plan (configurables). */
+    val ignoredPackages: Set<String> = emptySet(),
 ) {
     val currentPage: Page?
         get() = pages.getOrNull(pageIndex)
@@ -223,6 +232,7 @@ data class AppState(
                 visible = uiVisible || panel || questionOverlay,
                 screenOn = screenOn,
                 page = if (screen == Screen.Pages || panel) currentPage?.id else null,
+                presence = presence,
             )
         }
 

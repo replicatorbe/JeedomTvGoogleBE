@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Jeedom TV</string>
-    <string name="color_keys_service_label">Jeedom TV : touches de couleur</string>
-    <string name="color_keys_service_summary">Touches de couleur de la télécommande vers les pages Jeedom TV</string>
-    <string name="color_keys_service_description">Ouvre une page de Jeedom TV avec les touches rouge, verte, jaune et bleue de la télécommande, même pendant la télé ou un film. Le service ne garde que ces quatre touches, et seulement quand une page leur est associée ; toutes les autres touches passent normalement. Il ne lit pas le contenu de l\'écran.</string>
+    <string name="color_keys_service_label">Jeedom TV : touches de couleur et présence</string>
+    <string name="color_keys_service_summary">Touches de couleur vers les pages Jeedom TV, et présence devant la TV</string>
+    <string name="color_keys_service_description">Ouvre une page de Jeedom TV avec les touches rouge, verte, jaune et bleue de la télécommande, même pendant la télé ou un film. Le service ne garde que ces quatre touches, et seulement quand une page leur est associée ; toutes les autres touches passent normalement. Il note aussi l\'heure de la dernière touche et l\'application affichée, pour que Jeedom n\'éteigne ni ne dérange jamais quelqu\'un qui regarde la TV. Il ne lit pas le contenu de l\'écran.</string>
+    <string name="media_listener_label">Jeedom TV : média en lecture</string>
+    <string name="admin_label">Jeedom TV : mise en veille de l\'écran</string>
     <string name="dream_label">Jeedom TV : horloge et infos de la maison</string>
 </resources>

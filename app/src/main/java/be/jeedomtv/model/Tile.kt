@@ -117,8 +117,21 @@ sealed interface TvCommand {
     /** Entier croissant par TV ; un id déjà traité est ignoré. Null si le plugin ne l'a pas fourni. */
     val id: Long?
 
+    /** Allume l'écran (écran éteint) avant d'exécuter l'ordre ; voir « Présence humaine et allumage ». */
+    val wake: Boolean get() = false
+
     /** Affiche la page [page] ; retour à l'écran précédent après [durationSec] s (0 = sans retour). */
-    data class Show(override val id: Long?, val page: String, val durationSec: Int = 0) : TvCommand
+    data class Show(
+        override val id: Long?,
+        val page: String,
+        val durationSec: Int = 0,
+        /** `auto` : notification discrète faite de [fallback] si la TV est en usage. */
+        val mode: ShowMode = ShowMode.Full,
+        val fallback: ShowFallback? = null,
+        override val wake: Boolean = false,
+        /** À la fin de [durationSec], mise en veille si la règle d'or est vraie. */
+        val sleepAfter: Boolean = false,
+    ) : TvCommand
 
     /** Bandeau d'environ 8 s si l'application est visible. */
     data class Notify(
@@ -138,6 +151,7 @@ sealed interface TvCommand {
         val corner: Corner = Corner.TopEnd,
         /** Flux joué en direct, sans le son, dans le bandeau ; l'image sert d'attente et de repli. */
         val video: VideoUrl? = null,
+        override val wake: Boolean = false,
     ) : TvCommand
 
     /**
@@ -167,7 +181,16 @@ sealed interface TvCommand {
         val image: String? = null,
         /** Flux en direct à la place de la photo ; l'image sert d'attente et de repli. */
         val video: VideoUrl? = null,
+        override val wake: Boolean = false,
     ) : TvCommand
+
+    /** Allume l'écran sans rien afficher d'autre. */
+    data class Wake(override val id: Long?) : TvCommand {
+        override val wake: Boolean get() = true
+    }
+
+    /** Met l'écran en veille si la règle d'or est vraie ; [force] : sans condition. */
+    data class Sleep(override val id: Long?, val force: Boolean = false) : TvCommand
 }
 
 /** État de la TV signalé à Jeedom par `POST ?action=state`. */
@@ -178,6 +201,10 @@ data class TvState(
     val page: String?,
     /** Version de l'application (`versionName`) ; null si inconnue (tests). */
     val appVersion: String? = null,
+    /** Présence humaine et allumage ; null tant que l'application ne mesure rien (champs non envoyés). */
+    val presence: PresenceReport? = null,
+    /** Secondes depuis la dernière touche, calculées à l'envoi (avec [presence] seulement). */
+    val idleSeconds: Int? = null,
 )
 
 /** Réponse de `ping`. */

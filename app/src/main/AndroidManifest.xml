@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -8,6 +9,17 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Ouvrir l'écran depuis l'arrière-plan quand Jeedom le demande (accordée par adb). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Présence humaine (centre d'info) : toutes accordées par tools/setup-tv.sh. -->
+    <!-- Application au premier plan, en repli du service d'accessibilité (appops GET_USAGE_STATS). -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Distinguer une activité d'un dialogue ou d'une superposition au premier plan (paquets des autres applications). -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    <!-- Allumer l'écran (Android 14 et plus ; appop accordée par le script). -->
+    <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
 
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -44,7 +56,17 @@
                 android:value="Connexion permanente avec la domotique Jeedom pour afficher des pages sur commande" />
         </service>
 
-        <!-- Touches de couleur captées par-dessus les autres applications (activé par adb). -->
+        <!-- Allume l'écran pour un ordre `wake`, puis se ferme aussitôt. -->
+        <activity
+            android:name=".presence.WakeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Présence humaine et touches de couleur, par-dessus les autres applications (activé par adb). -->
         <service
             android:name=".ColorKeyService"
             android:exported="true"
@@ -69,6 +91,31 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </service>
+
+        <!-- Sessions média en lecture (média `playing`) ; ne lit aucune notification (activé par adb). -->
+        <service
+            android:name=".presence.MediaListenerService"
+            android:exported="true"
+            android:label="@string/media_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Mise en veille de l'écran (ordre `sleep`) : DevicePolicyManager.lockNow (activé par adb). -->
+        <receiver
+            android:name=".presence.AdminReceiver"
+            android:exported="true"
+            android:label="@string/admin_label"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".BootReceiver"
