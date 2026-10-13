@@ -5,6 +5,8 @@ import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.PresenceReport
 import be.jeedomtv.model.ShowFallback
 import be.jeedomtv.model.ShowMode
+import be.jeedomtv.model.SleepOutcome
+import be.jeedomtv.model.SleepResult
 import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.TvState
 import be.jeedomtv.model.WokeBy
@@ -62,6 +64,22 @@ class JeedomHttpDriverPresenceTest {
                 """"humanTookOver":true,"capabilities":{"keys":true,"foreground":true,"media":true,"wake":true,"sleep":true}}""",
             server.takeRequest().body.readUtf8(),
         )
+    }
+
+    @Test
+    fun `state - lastSleep apres un ordre sleep`() = runBlocking {
+        server.enqueue(json("""{"ok": true}"""))
+        driver().state(
+            TvState(
+                visible = false, screenOn = true, page = null,
+                presence = PresenceReport(
+                    false, null, null, false, WokeBy.Jeedom, false, Capabilities(),
+                    lastSleep = SleepResult(42, SleepOutcome.Failed),
+                ),
+            )
+        )
+        val body = server.takeRequest().body.readUtf8()
+        assertEquals(true, body.endsWith(""""lastSleep":{"id":42,"result":"failed"}}"""))
     }
 
     @Test

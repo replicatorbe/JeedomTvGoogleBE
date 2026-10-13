@@ -165,6 +165,12 @@ class JeedomHttpDriver internal constructor(
                     put("wake", p.capabilities.wake)
                     put("sleep", p.capabilities.sleep)
                 })
+                p.lastSleep?.let { last ->
+                    put("lastSleep", buildJsonObject {
+                        put("id", last.id?.let { JsonPrimitive(it) } ?: JsonNull)
+                        put("result", last.outcome.apiName)
+                    })
+                }
             }
         }
         post("state", body)

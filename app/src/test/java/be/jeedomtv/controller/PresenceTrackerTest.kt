@@ -2,6 +2,8 @@ package be.jeedomtv.controller
 
 import be.jeedomtv.model.Capabilities
 import be.jeedomtv.model.ShowMode
+import be.jeedomtv.model.SleepOutcome
+import be.jeedomtv.model.SleepResult
 import be.jeedomtv.model.WokeBy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,24 +48,24 @@ class PresenceTrackerTest {
     @Test
     fun `application au premier plan - chaine TV ou HDMI en usage, pas nous ni le lanceur ni l'ecran de veille`() {
         val t = tracker()
-        t.onForeground("com.tcl.tv", 0)
+        t.onForeground("com.tcl.tv")
         assertTrue("chaîne TV / entrée HDMI", t.inUse(0))
-        t.onForeground("com.netflix.ninja", 0)
+        t.onForeground("com.netflix.ninja")
         assertTrue("application en pause", t.inUse(0))
-        t.onForeground("be.jeedomtv", 0)
+        t.onForeground("be.jeedomtv")
         assertFalse(t.inUse(0))
-        t.onForeground("com.google.android.apps.tv.launcherx", 0)
+        t.onForeground("com.google.android.apps.tv.launcherx")
         assertFalse(t.inUse(0))
-        t.onForeground("com.google.android.apps.tv.dreamx", 0)
+        t.onForeground("com.google.android.apps.tv.dreamx")
         assertFalse(t.inUse(0))
-        t.onForeground(null, 0)
+        t.onForeground(null)
         assertFalse("inconnu", t.inUse(0))
     }
 
     @Test
     fun `liste des lanceurs configurable`() {
         val t = tracker()
-        t.onForeground("com.tcl.tv.tclhome_passive", 0)
+        t.onForeground("com.tcl.tv.tclhome_passive")
         assertTrue(t.inUse(0))
         t.ignoredPackages = PresenceTracker.parsePackages("com.google.android.apps.tv.launcherx, com.tcl.tv.tclhome_passive")
         assertFalse(t.inUse(0))
@@ -74,7 +76,7 @@ class PresenceTrackerTest {
         val t = tracker()
         t.onKey(0)
         t.onPlaying(true, 0)
-        t.onForeground("com.netflix.ninja", 0)
+        t.onForeground("com.netflix.ninja")
         t.onDreaming(true)
         assertFalse(t.inUse(0))
         t.onDreaming(false)
@@ -84,37 +86,56 @@ class PresenceTrackerTest {
     }
 
     @Test
-    fun `idleSeconds - null sans touches observables ou avant la premiere touche`() {
+    fun `idleSeconds - depuis l'allumage avant la premiere touche, null sans touches observables`() {
         val t = tracker()
-        assertNull(t.idleSeconds(5_000))
+        assertEquals("pas de touche depuis l'allumage", 5, t.idleSeconds(5_000))
         t.onKey(5_000)
         assertEquals(12, t.idleSeconds(17_400))
+        t.onScreen(false, 20_000)
+        t.onScreen(true, 30_000)
+        assertEquals("réallumée sans touche : depuis l'allumage", 3, t.idleSeconds(33_000))
         t.onCapabilities(allCapabilities.copy(keys = false))
-        assertNull("service d'accessibilité désactivé", t.idleSeconds(20_000))
-        assertFalse(t.inUse(20_000))
+        assertNull("service d'accessibilité désactivé", t.idleSeconds(40_000))
+        assertFalse(t.inUse(40_000))
     }
 
     @Test
-    fun `changement d'application qui vient d'un ordre - pas une prise en main`() {
+    fun `allumee par jeedom sans reprise en main - pas en usage, quelle que soit l'application`() {
         val t = PresenceTracker("be.jeedomtv").apply { onCapabilities(allCapabilities); onScreen(false, 0) }
         t.onWakeRequested(0)
         t.onScreen(true, 1_000)
-        assertEquals(WokeBy.Jeedom, t.report(1_000).wokeBy)
-        t.markOwnTransition(10_000)
-        t.onForeground("com.tcl.tv", 12_000)
-        assertFalse(t.report(12_000).humanTookOver)
-        t.onForeground("com.netflix.ninja", 20_000)
-        assertTrue(t.report(20_000).humanTookOver)
+        t.onForeground("com.netflix.ninja")
+        t.onForeground("com.tcl.tv")
+        val report = t.report(10_000)
+        assertEquals(WokeBy.Jeedom, report.wokeBy)
+        assertFalse("un changement d'application seul n'est pas une reprise en main", report.humanTookOver)
+        assertFalse(report.inUse)
+        t.onKey(12_000)
+        assertTrue(t.report(12_000).humanTookOver)
+        assertTrue("touche : en usage", t.inUse(12_000))
     }
 
     @Test
-    fun `retour au lanceur ou a nous - pas une prise en main`() {
+    fun `allumee par un humain - application au premier plan en usage`() {
         val t = PresenceTracker("be.jeedomtv").apply { onCapabilities(allCapabilities); onScreen(false, 0) }
-        t.onWakeRequested(0)
-        t.onScreen(true, 0)
-        t.onForeground("be.jeedomtv", 10_000)
-        t.onForeground("com.google.android.apps.tv.launcherx", 20_000)
-        assertFalse(t.report(20_000).humanTookOver)
+        t.onScreen(true, 1_000)
+        t.onForeground("com.tcl.tv")
+        assertEquals(WokeBy.Human, t.report(5_000).wokeBy)
+        assertTrue(t.inUse(5_000))
+    }
+
+    @Test
+    fun `sleep echoue - capabilities sleep false jusqu'au redemarrage, lastSleep`() {
+        val t = tracker()
+        assertTrue(t.report(0).capabilities.sleep)
+        t.onSleepOutcome(7, SleepOutcome.Refused)
+        assertEquals(SleepResult(7, SleepOutcome.Refused), t.report(0).lastSleep)
+        assertTrue(t.report(0).capabilities.sleep)
+        t.onSleepOutcome(8, SleepOutcome.Failed)
+        assertEquals(SleepResult(8, SleepOutcome.Failed), t.report(0).lastSleep)
+        assertFalse(t.report(0).capabilities.sleep)
+        t.onCapabilities(allCapabilities)
+        assertFalse("relevé des permissions : reste false", t.report(0).capabilities.sleep)
     }
 
     @Test

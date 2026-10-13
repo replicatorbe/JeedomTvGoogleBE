@@ -20,6 +20,7 @@ import be.jeedomtv.model.QuestionStatus
 import be.jeedomtv.model.Screen
 import be.jeedomtv.model.SettingsRepository
 import be.jeedomtv.model.ShowMode
+import be.jeedomtv.model.SleepOutcome
 import be.jeedomtv.model.Tile
 import be.jeedomtv.model.TileAction
 import be.jeedomtv.model.TileChange
@@ -208,6 +209,12 @@ class AppController(
     /** Le panneau ouvert par un `show` avec `sleepAfter` : mise en veille à la fin de sa durée. */
     private var panelSleepAfter = false
 
+    /** Mise en veille tentée, en attente de l'extinction de l'écran (au plus [SLEEP_CHECK_MS]). */
+    private var sleepCheck: Job? = null
+
+    /** Ordre `sleep` dont l'issue attend l'extinction ; null pour une veille d'elle-même (`sleepAfter`). */
+    private var pendingSleepOrder: TvCommand.Sleep? = null
+
     /** Au lancement : configuration enregistrée → connexion, sinon écran de configuration. */
     fun start() {
         loadIgnoredPackages()
@@ -289,6 +296,12 @@ class AppController(
      */
     fun onScreenChanged(on: Boolean) {
         presence.onScreen(on, elapsedMs())
+        if (!on && sleepCheck != null) {
+            sleepCheck?.cancel()
+            sleepCheck = null
+            pendingSleepOrder?.let { presence.onSleepOutcome(it.id, SleepOutcome.Done) }
+            pendingSleepOrder = null
+        }
         update { it.copy(screenOn = on) }
         refreshPresence()
         if (on) runOrdersAfterWake()
@@ -390,7 +403,7 @@ class AppController(
 
     /** Application au premier plan (null : inconnue). */
     fun onForegroundApp(packageName: String?) {
-        if (presence.onForeground(packageName, elapsedMs())) refreshPresence()
+        if (presence.onForeground(packageName)) refreshPresence()
     }
 
     /** Un média est-il en lecture (null : inconnu). */
@@ -426,7 +439,37 @@ class AppController(
             return
         }
         log("$reason : mise en veille")
-        if (!screenPower.sleep()) log("mise en veille impossible")
+        trySleep(order = null)
+    }
+
+    /**
+     * Met l'écran en veille et vérifie qu'il s'éteint dans les [SLEEP_CHECK_MS] ; sinon (ou si c'est
+     * impossible d'emblée) échec : `capabilities.sleep` repasse à false jusqu'au redémarrage, et
+     * l'ordre [order] s'il y en a un est signalé `failed` (`done` à l'extinction).
+     */
+    private fun trySleep(order: TvCommand.Sleep?) {
+        sleepCheck?.cancel()
+        sleepCheck = null
+        pendingSleepOrder = null
+        if (!screenPower.sleep()) {
+            log("mise en veille impossible")
+            sleepFailed(order)
+            return
+        }
+        pendingSleepOrder = order
+        sleepCheck = scope.launch {
+            delay(SLEEP_CHECK_MS)
+            sleepCheck = null
+            pendingSleepOrder = null
+            if (!state.value.screenOn) return@launch
+            log("mise en veille sans effet : écran encore allumé")
+            sleepFailed(order)
+        }
+    }
+
+    private fun sleepFailed(order: TvCommand.Sleep?) {
+        if (order != null) presence.onSleepOutcome(order.id, SleepOutcome.Failed) else presence.onSleepFailed()
+        refreshPresence()
     }
 
     // --- Connexion ---------------------------------------------------------------------------
@@ -734,7 +777,6 @@ class AppController(
                 if (screenPower.wake()) {
                     log("allumage de l'écran demandé")
                     presence.onWakeRequested(now)
-                    presence.markOwnTransition(now)
                     // L'ordre s'exécute écran allumé : ses durées comptent depuis l'affichage réel.
                     if (command !is TvCommand.Wake) ordersAfterWake += command
                     if (wakeTimer?.isActive != true) {
@@ -780,14 +822,13 @@ class AppController(
     private fun sleep(command: TvCommand.Sleep) {
         if (!PresenceRules.sleepAllowed(command.force, mayAutoSleep())) {
             log("veille refusée (wokeBy=${presence.ownership.wokeBy}, humanTookOver=${presence.ownership.humanTookOver}, question=${state.value.question != null})")
-            if (presenceEnabled) resendState()
+            presence.onSleepOutcome(command.id, SleepOutcome.Refused)
+            // Deux refus de suite : même `lastSleep` si l'id manque ; l'état part quand même.
+            if (!refreshPresence() && presenceEnabled) resendState()
             return
         }
         log(if (command.force) "veille forcée" else "veille demandée")
-        if (!screenPower.sleep()) {
-            log("mise en veille impossible")
-            if (presenceEnabled) resendState()
-        }
+        trySleep(command)
     }
 
     /**
@@ -1574,14 +1615,8 @@ class AppController(
 
     /** Toute modification du modèle passe par ici : l'état de la TV est renvoyé s'il a changé. */
     private fun update(transform: (AppState) -> AppState) {
-        val before = state.value
         model.update(transform)
-        val after = state.value
-        // L'application change elle-même ce qui est au premier plan : ce n'est pas un humain.
-        if ((after.foregroundRequested && !before.foregroundRequested) || (after.exitRequested && !before.exitRequested)) {
-            presence.markOwnTransition(elapsedMs())
-        }
-        val tvState = after.tvState
+        val tvState = state.value.tvState
         if (tvState != lastScheduledState) {
             lastScheduledState = tvState
             scheduleStateSend()
@@ -1983,6 +2018,9 @@ class AppController(
 
         /** Ordre avec `wake` : exécuté au plus tard après ce délai, même sans écran allumé. */
         const val WAKE_TIMEOUT_MS = 10_000L
+
+        /** Mise en veille : l'écran encore allumé après ce délai → `lastSleep.result = failed`. */
+        const val SLEEP_CHECK_MS = 5_000L
 
         /** Durée par défaut de la notification discrète d'un `show` en `mode: auto`. */
         const val DEFAULT_FALLBACK_S = 15

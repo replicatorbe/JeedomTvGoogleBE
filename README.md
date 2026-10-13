@@ -401,7 +401,7 @@ Jeedom peut allumer la TV pour une info, puis l'éteindre, sans jamais déranger
 | Média en lecture | sessions média (`MediaSessionManager`), à défaut `AudioManager.isMusicActive` | écouteur de notifications |
 | Écran, écran de veille | `ACTION_SCREEN_ON/OFF`, `ACTION_DREAMING_STARTED/STOPPED` | — |
 | Allumer l'écran | activité invisible `setTurnScreenOn` démarrée depuis l'arrière-plan | superposition (et `TURN_SCREEN_ON` dès Android 14) |
-| Éteindre l'écran | `DevicePolicyManager.lockNow()`, à défaut l'action « verrouiller l'écran » du service d'accessibilité | administrateur de l'appareil |
+| Éteindre l'écran | `DevicePolicyManager.lockNow()`, vérifié 5 s après (`lastSleep`) ; `capabilities.sleep` seulement si le téléviseur déclare `android.software.device_admin` | administrateur de l'appareil |
 
 - `inUse` : écran allumé hors écran de veille, et une touche depuis moins de 10 min, un média en lecture, ou au premier plan une application autre que Jeedom TV, un lanceur ou un écran de veille.
 - `wokeBy` / `humanTookOver` : qui a allumé l'écran (Jeedom ou un humain), et si quelqu'un a pris la main depuis un allumage par Jeedom. La TV ne se met en veille d'elle-même (`sleep` sans `force`, `sleepAfter`) que si Jeedom l'a allumée, que personne n'y a touché et qu'aucune question n'est affichée.

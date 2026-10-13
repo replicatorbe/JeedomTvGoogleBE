@@ -108,17 +108,13 @@ class WakeOwnershipTest {
         o.onWakeRequested(0)
         o.onScreen(true, 1_000)
         o.onKey(2_999)
-        o.onForegroundChangedByHuman(2_500)
         o.onPlaybackStarted(2_000)
         assertFalse(o.humanTookOver)
         assertTrue(o.mayAutoSleep(questionShown = false))
     }
 
     @Test
-    fun `regle 4 - changement d'application ou lecture d'un media - humanTookOver`() {
-        val a = asleep().apply { onWakeRequested(0); onScreen(true, 0) }
-        a.onForegroundChangedByHuman(5_000)
-        assertTrue(a.humanTookOver)
+    fun `regle 4 - debut de lecture d'un media - humanTookOver`() {
         val b = asleep().apply { onWakeRequested(0); onScreen(true, 0) }
         b.onPlaybackStarted(5_000)
         assertTrue(b.humanTookOver)

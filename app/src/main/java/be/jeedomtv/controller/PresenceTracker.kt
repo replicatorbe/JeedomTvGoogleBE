@@ -3,6 +3,9 @@ package be.jeedomtv.controller
 import be.jeedomtv.model.Capabilities
 import be.jeedomtv.model.PresenceReport
 import be.jeedomtv.model.ShowMode
+import be.jeedomtv.model.SleepOutcome
+import be.jeedomtv.model.SleepResult
+import be.jeedomtv.model.WokeBy
 
 /**
  * Signaux de présence humaine (contrat, « Présence humaine et allumage ») et calcul de `inUse`.
@@ -15,8 +18,6 @@ class PresenceTracker(
     /** Lanceurs et écrans de veille : au premier plan, ils ne comptent pas non plus. */
     ignoredPackages: Set<String> = DEFAULT_IGNORED_PACKAGES,
     val ownership: WakeOwnership = WakeOwnership(),
-    /** Changements d'application qui suivent un geste de l'application (ordre) : pas d'un humain. */
-    private val ownTransitionMs: Long = OWN_TRANSITION_MS,
 ) {
     var ignoredPackages: Set<String> = ignoredPackages
         set(value) {
@@ -38,11 +39,21 @@ class PresenceTracker(
     var lastKeyAt: Long? = null
         private set
 
-    private var ownTransitionUntil = Long.MIN_VALUE
+    /** Début de l'inactivité : dernière touche, ou allumage de l'écran s'il est plus récent. */
+    private var idleSince: Long? = null
+
+    /** Une mise en veille a échoué : `capabilities.sleep` reste false jusqu'au redémarrage. */
+    private var sleepFailed = false
+
+    /** Issue du dernier ordre `sleep` (`lastSleep`) ; null tant qu'aucun n'a été traité. */
+    var lastSleep: SleepResult? = null
+        private set
 
     fun onScreen(on: Boolean, now: Long) {
+        val before = screenOn
         screenOn = on
         ownership.onScreen(on, now)
+        if (on && (!before || idleSince == null)) idleSince = now
     }
 
     fun onDreaming(dreaming: Boolean) {
@@ -58,21 +69,17 @@ class PresenceTracker(
     fun onKey(now: Long) {
         if (!screenOn) return
         lastKeyAt = now
+        idleSince = now
         ownership.onKey(now)
     }
 
-    /** L'application va changer elle-même ce qui est au premier plan (ordre de Jeedom). */
-    fun markOwnTransition(now: Long) {
-        ownTransitionUntil = now + ownTransitionMs
-    }
-
-    /** Retourne true si le paquet au premier plan a changé. */
-    fun onForeground(packageName: String?, now: Long): Boolean {
+    /**
+     * Retourne true si le paquet au premier plan a changé. Un changement d'application ne fait pas
+     * une reprise en main (contrat, règle 4).
+     */
+    fun onForeground(packageName: String?): Boolean {
         if (packageName == foreground) return false
         foreground = packageName
-        if (packageName != null && !isIgnored(packageName) && now > ownTransitionUntil) {
-            ownership.onForegroundChangedByHuman(now)
-        }
         return true
     }
 
@@ -87,23 +94,41 @@ class PresenceTracker(
 
     fun onWakeRequested(now: Long) = ownership.onWakeRequested(now)
 
+    /** Ordre `sleep` traité ; un échec retire `capabilities.sleep` jusqu'au redémarrage. */
+    fun onSleepOutcome(id: Long?, outcome: SleepOutcome) {
+        lastSleep = SleepResult(id, outcome)
+        if (outcome == SleepOutcome.Failed) sleepFailed = true
+    }
+
+    /** Mise en veille d'elle-même (`sleepAfter`) qui a échoué : même conséquence, sans `lastSleep`. */
+    fun onSleepFailed() {
+        sleepFailed = true
+    }
+
     /**
      * `inUse` : écran allumé hors écran de veille, et au moins l'un de : une touche depuis moins de
      * [KEY_IN_USE_MS], un média en lecture, une application au premier plan autre que nous, un
      * lanceur ou un écran de veille (chaîne TV, entrée HDMI, application en pause).
+     *
+     * Exception : allumée par Jeedom sans reprise en main → false, quelle que soit l'application
+     * revenue au premier plan au réveil (l'application de l'entrée TV revient souvent d'elle-même).
      */
     fun inUse(now: Long): Boolean {
         if (!screenOn || dreaming) return false
+        if (ownership.wokeBy == WokeBy.Jeedom && !ownership.humanTookOver) return false
         val recentKey = lastKeyAt?.let { now - it < KEY_IN_USE_MS } ?: false
         val app = foreground?.let { !isIgnored(it) } ?: false
         return recentKey || playing == true || app
     }
 
-    /** Secondes depuis la dernière touche ; null si les touches ne sont pas observables (ou aucune encore). */
+    /**
+     * Secondes depuis la dernière touche, ou depuis l'allumage de l'écran s'il n'y en a pas eu depuis ;
+     * null seulement si les touches ne sont pas observables.
+     */
     fun idleSeconds(now: Long): Int? {
         if (!capabilities.keys) return null
-        val last = lastKeyAt ?: return null
-        return ((now - last) / 1000).coerceAtLeast(0).toInt()
+        val since = idleSince ?: return null
+        return ((now - since) / 1000).coerceAtLeast(0).toInt()
     }
 
     fun report(now: Long): PresenceReport = PresenceReport(
@@ -113,14 +138,14 @@ class PresenceTracker(
         dreaming = dreaming,
         wokeBy = ownership.wokeBy,
         humanTookOver = ownership.humanTookOver,
-        capabilities = capabilities,
+        capabilities = if (sleepFailed) capabilities.copy(sleep = false) else capabilities,
+        lastSleep = lastSleep,
     )
 
     private fun isIgnored(packageName: String) = packageName == ownPackage || packageName in ignoredPackages
 
     companion object {
         const val KEY_IN_USE_MS = 10 * 60_000L
-        const val OWN_TRANSITION_MS = 5_000L
 
         /** Lanceur et écran de veille Ambiant de Google TV ; complétés à l'écran de configuration. */
         val DEFAULT_IGNORED_PACKAGES = setOf(

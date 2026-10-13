@@ -11,9 +11,10 @@ import be.jeedomtv.model.WokeBy
  * 2. Il s'allume sans demande (télécommande, CEC, Google Home) → `human`…
  * 3. … sauf si un ordre avec `wake` arrive dans les [reattributeWindowMs] qui suivent, sans touche
  *    entre-temps : l'allumage revient à Jeedom (le plugin a réveillé la TV par un autre chemin).
- * 4. Après un allumage par Jeedom, la première touche, le premier changement d'application qui ne
- *    vient pas d'un ordre ou la première lecture d'un média → `humanTookOver`. Les
- *    [ignoreAfterWakeMs] qui suivent l'allumage sont ignorées (événements parasites du CEC).
+ * 4. Après un allumage par Jeedom, la première touche ou le premier début de lecture d'un média →
+ *    `humanTookOver`. Un changement d'application seul ne compte pas : au réveil, le téléviseur
+ *    rouvre souvent de lui-même l'application de l'entrée TV. Les [ignoreAfterWakeMs] qui suivent
+ *    l'allumage sont ignorées (événements parasites du CEC).
  *
  * Tout est remis à zéro à la mise en veille. Application démarrée écran allumé : `wokeBy` inconnu.
  */
@@ -85,11 +86,6 @@ class WakeOwnership(
         if (!countsAsHuman(now)) return
         keySinceScreenOn = true
         tookOver = true
-    }
-
-    /** Changement d'application au premier plan qui ne vient pas d'un ordre. */
-    fun onForegroundChangedByHuman(now: Long) {
-        if (countsAsHuman(now)) tookOver = true
     }
 
     /** Un média passe en lecture. */

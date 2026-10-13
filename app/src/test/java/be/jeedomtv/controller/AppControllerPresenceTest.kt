@@ -8,6 +8,8 @@ import be.jeedomtv.model.Overlay
 import be.jeedomtv.model.Screen
 import be.jeedomtv.model.ShowFallback
 import be.jeedomtv.model.ShowMode
+import be.jeedomtv.model.SleepOutcome
+import be.jeedomtv.model.SleepResult
 import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.WokeBy
 import kotlinx.coroutines.test.TestScope
@@ -93,7 +95,7 @@ class AppControllerPresenceTest {
         advanceTimeBy(1_000)
         val first = factory.states.last()
         assertEquals(all, first.presence!!.capabilities)
-        assertNull("aucune touche encore", first.idleSeconds)
+        assertEquals("aucune touche encore : depuis l'allumage (pas null)", 0, first.idleSeconds)
         assertNull("démarrage écran allumé", first.presence!!.wokeBy)
 
         val before = factory.states.size
@@ -153,6 +155,39 @@ class AppControllerPresenceTest {
         factory.send(TvCommand.Sleep(2))
         runCurrent()
         assertEquals(1, power.sleeps)
+        c.onScreenChanged(false)
+        advanceTimeBy(1_000)
+        assertEquals(SleepResult(2, SleepOutcome.Done), factory.states.last().presence!!.lastSleep)
+    }
+
+    @Test
+    fun `sleep sans effet - ecran encore allume apres 5 s - failed, capabilities sleep false`() = runTest {
+        val factory = FakeDriverFactory()
+        val power = FakeScreenPower()
+        val c = started(factory, power)
+        factory.send(TvCommand.Wake(1))
+        runCurrent()
+        screenComesOn(c)
+        factory.send(TvCommand.Sleep(2))
+        runCurrent()
+        assertEquals(1, power.sleeps)
+        advanceTimeBy(5_000 - 100)
+        assertNull("pas encore jugé", c.presence.lastSleep)
+        advanceTimeBy(1_000)
+        assertEquals(SleepResult(2, SleepOutcome.Failed), factory.states.last().presence!!.lastSleep)
+        assertFalse(factory.states.last().presence!!.capabilities.sleep)
+        c.onCapabilities(all, emptyList())
+        assertFalse("jusqu'au redémarrage", c.presence.capabilities.sleep)
+    }
+
+    @Test
+    fun `sleep impossible d'emblee - failed aussitot`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = started(factory, FakeScreenPower(canSleep = false), screenOn = true)
+        factory.send(TvCommand.Sleep(4, force = true))
+        runCurrent()
+        assertEquals(SleepResult(4, SleepOutcome.Failed), c.presence.lastSleep)
+        assertFalse(c.presence.capabilities.sleep)
     }
 
     @Test
@@ -175,6 +210,7 @@ class AppControllerPresenceTest {
         assertEquals(0, power.sleeps)
         assertTrue("état renvoyé", factory.states.size > before)
         assertTrue(factory.states.last().presence!!.humanTookOver)
+        assertEquals(SleepResult(2, SleepOutcome.Refused), factory.states.last().presence!!.lastSleep)
     }
 
     @Test
@@ -382,7 +418,7 @@ class AppControllerPresenceTest {
     }
 
     @Test
-    fun `retour de l'application d'avant apres un show - pas une prise en main`() = runTest {
+    fun `changements d'application apres un reveil par jeedom - pas une prise en main, pas en usage`() = runTest {
         val factory = FakeDriverFactory()
         val power = FakeScreenPower()
         val c = started(factory, power, overlay = false)
@@ -401,6 +437,10 @@ class AppControllerPresenceTest {
         assertFalse(c.presence.humanTookOver)
         advanceTimeBy(10_000)
         c.onForegroundApp("com.netflix.ninja")
+        assertFalse(c.presence.humanTookOver)
+        assertFalse("allumée par Jeedom, personne n'a pris la main", c.presence.inUse)
+        c.onRemoteKeyObserved()
         assertTrue(c.presence.humanTookOver)
+        assertTrue(c.presence.inUse)
     }
 }

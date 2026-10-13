@@ -38,7 +38,24 @@ data class PresenceReport(
     val wokeBy: WokeBy?,
     val humanTookOver: Boolean,
     val capabilities: Capabilities,
+    /** Issue du dernier ordre `sleep` ; null tant qu'aucun n'a été traité. */
+    val lastSleep: SleepResult? = null,
 )
+
+/** `lastSleep.result` du contrat. */
+enum class SleepOutcome(val apiName: String) {
+    /** L'écran s'est éteint. */
+    Done("done"),
+
+    /** Règle d'or fausse, sans `force`. */
+    Refused("refused"),
+
+    /** Tentée, mais l'écran est encore allumé 5 s après. */
+    Failed("failed"),
+}
+
+/** `lastSleep` du contrat : l'ordre `sleep` (son id) et son issue. */
+data class SleepResult(val id: Long?, val outcome: SleepOutcome)
 
 /** Une permission accordée par adb, pour l'écran de diagnostic. */
 data class PermissionStatus(

@@ -4,6 +4,7 @@ import android.app.AppOpsManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import android.os.Process
@@ -57,6 +58,16 @@ object PresencePermissions {
             ?.isAdminActive(ScreenPowerControl.adminComponent(context)) == true
 
     /**
+     * Le téléviseur déclare la fonction « administrateur de l'appareil » : sans elle, `lockNow` peut
+     * être accepté sans éteindre l'écran (TCL Android 11).
+     */
+    fun deviceAdminSupported(context: Context): Boolean =
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_DEVICE_ADMIN)
+
+    /** Mettre en veille : administrateur actif sur un téléviseur qui déclare la fonction. */
+    fun canSleep(context: Context): Boolean = adminActive(context) && deviceAdminSupported(context)
+
+    /**
      * Retire l'administrateur de l'appareil (préalable à la désinstallation) : adb ne peut retirer
      * qu'un administrateur de test, l'application peut toujours se retirer elle-même.
      */
@@ -78,7 +89,7 @@ object PresencePermissions {
             foreground = accessibility || usageStatsGranted(context),
             media = notificationListenerGranted(context),
             wake = canWake(context),
-            sleep = adminActive(context) || accessibility,
+            sleep = canSleep(context),
         )
     }
 
@@ -90,6 +101,7 @@ object PresencePermissions {
         PermissionStatus("Afficher par-dessus les autres applications", overlayGranted(context)),
         PermissionStatus("Allumer l'écran (TURN_SCREEN_ON)", turnScreenOnGranted(context)),
         PermissionStatus(ADMIN_LABEL, adminActive(context)),
+        PermissionStatus("Fonction android.software.device_admin du téléviseur", deviceAdminSupported(context)),
         PermissionStatus("Exemption d'économie d'énergie", batteryExempt(context)),
     )
 

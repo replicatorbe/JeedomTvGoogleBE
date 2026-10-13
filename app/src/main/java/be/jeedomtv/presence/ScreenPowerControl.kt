@@ -1,20 +1,19 @@
 package be.jeedomtv.presence
 
-import android.accessibilityservice.AccessibilityService
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import be.jeedomtv.ColorKeyService
 import be.jeedomtv.controller.ScreenPower
 
 /**
  * Allumer et éteindre l'écran de la TV.
  *
  * - Allumer : [WakeActivity], démarrée depuis l'arrière-plan (exemption « afficher par-dessus »).
- * - Éteindre : `DevicePolicyManager.lockNow()` (administrateur de l'appareil), à défaut l'action
- *   globale « verrouiller l'écran » du service d'accessibilité.
+ * - Éteindre : `DevicePolicyManager.lockNow()` (administrateur de l'appareil). L'action globale
+ *   « verrouiller l'écran » n'est pas un repli : sans écran verrouillé (cas des téléviseurs), elle
+ *   n'éteint rien. Le contrôleur vérifie que l'écran s'éteint vraiment.
  */
 class ScreenPowerControl(private val context: Context) : ScreenPower {
 
@@ -36,16 +35,14 @@ class ScreenPowerControl(private val context: Context) : ScreenPower {
 
     override fun sleep(): Boolean {
         val dpm = context.getSystemService(DevicePolicyManager::class.java)
-        if (dpm != null && dpm.isAdminActive(adminComponent(context))) {
-            try {
-                dpm.lockNow()
-                return true
-            } catch (e: SecurityException) {
-                Log.w(TAG, "lockNow refusé", e)
-            }
+        if (dpm == null || !dpm.isAdminActive(adminComponent(context))) return false
+        return try {
+            dpm.lockNow()
+            true
+        } catch (e: SecurityException) {
+            Log.w(TAG, "lockNow refusé", e)
+            false
         }
-        val service = ColorKeyService.instance ?: return false
-        return service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
     }
 
     companion object {
