@@ -2,10 +2,12 @@ package be.jeedomtv.model.driver
 
 import be.jeedomtv.model.Board
 import be.jeedomtv.model.BoardSection
+import be.jeedomtv.model.BoardWeather
 import be.jeedomtv.model.JeedomConfig
 import be.jeedomtv.model.PageType
 import be.jeedomtv.model.Train
 import be.jeedomtv.model.TrainStatus
+import be.jeedomtv.model.WeatherHour
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -142,7 +144,64 @@ class JeedomHttpDriverBoardTest {
         assertTrue(driver().changes("3").boards.isEmpty())
     }
 
+    private fun weather(json: String) = parseWeather(kotlinx.serialization.json.Json.parseToJsonElement(json))
+
+    @Test
+    fun `meteo - exemple du contrat, dans le tableau et dans changes`() = runBlocking {
+        val expected = BoardWeather(
+            city = "Soignies", temp = 14, icon = "mdi:weather-cloudy", condition = "Couvert", tmin = 7, tmax = 21,
+            rain = "Risque de précipitations dans 2h40", warning = "Vigilance jaune — Brouillard", warningLevel = 1,
+            updated = "06:40", note = "",
+            hours = listOf(
+                WeatherHour("09", "mdi:weather-cloudy", 15, 0),
+                WeatherHour("12", "mdi:weather-cloudy", 18, 30),
+                WeatherHour("15", "mdi:weather-rainy", 20, 90),
+            ),
+        )
+        assertEquals(expected, weather(CONTRACT_WEATHER))
+        val board = CONTRACT_BOARD.trimEnd().removeSuffix("}") + """, "weather": $CONTRACT_WEATHER}"""
+        server.enqueue(json("""{"since": 2, "revision": "r", "changes": [], "commands": [], "boards": {"p7": $board}}"""))
+        assertEquals(mapOf("p7" to contractBoard.copy(weather = expected)), driver().changes("1").boards)
+        assertNull("sans weather : pas de météo", contractBoard.weather)
+    }
+
+    @Test
+    fun `meteo - note seule, pas un objet, champs illisibles, bornes du contrat`() {
+        assertEquals(BoardWeather(note = "Météo non relue depuis 06:40"), weather("""{"note": "Météo non relue depuis 06:40"}"""))
+        assertNull(weather("\"illisible\""))
+        assertNull(weather("[]"))
+        assertNull(parseWeather(null))
+        val parsed = weather("""{"temp": "14.6", "icon": "weather-cloudy", "tmin": "froid", "tmax": null,
+            "warningLevel": 7, "rain": 12, "condition": ["?"], "note": "${"x".repeat(150)}",
+            "hours": [
+              {"h": "09", "icon": "https://x/y.png", "temp": "15", "rain": 140},
+              {"icon": "mdi:weather-sunny"}, "pas un objet",
+              {"h": "10", "rain": -5}, {"h": "11", "rain": "NaN"}, {"h": "12"}, {"h": "13"}, {"h": "14"}, {"h": "15"}
+            ]}""")!!
+        assertEquals(15, parsed.temp)
+        assertEquals("une icône qui n'est pas mdi: est ignorée", "", parsed.icon)
+        assertNull(parsed.tmin)
+        assertNull(parsed.tmax)
+        assertEquals(3, parsed.warningLevel)
+        assertEquals("nombre en texte accepté", "12", parsed.rain)
+        assertEquals("", parsed.condition)
+        assertEquals(120, parsed.note.length)
+        assertEquals("6 colonnes au plus, sans heure ignorées", listOf("09", "10", "11", "12", "13", "14"), parsed.hours.map { it.h })
+        assertEquals(WeatherHour("09", "", 15, 100), parsed.hours[0])
+        assertEquals(0, parsed.hours[1].rain)
+        assertNull(parsed.hours[2].rain)
+        assertEquals(0, weather("""{"warningLevel": -2}""")!!.warningLevel)
+        assertEquals(BoardWeather(), weather("{}"))
+    }
+
     private companion object {
+        const val CONTRACT_WEATHER = """{"city": "Soignies", "temp": 14, "icon": "mdi:weather-cloudy", "condition": "Couvert",
+            "tmin": 7, "tmax": 21, "rain": "Risque de précipitations dans 2h40",
+            "warning": "Vigilance jaune — Brouillard", "warningLevel": 1, "updated": "06:40", "note": "",
+            "hours": [{"h": "09", "icon": "mdi:weather-cloudy", "temp": 15, "rain": 0},
+                      {"h": "12", "icon": "mdi:weather-cloudy", "temp": 18, "rain": 30},
+                      {"h": "15", "icon": "mdi:weather-rainy", "temp": 20, "rain": 90}]}"""
+
         const val CONTRACT_BOARD = """{
            "sections": [
              {"id": "b1", "title": "Soignies → Bruxelles", "day": "", "updated": "07:12",

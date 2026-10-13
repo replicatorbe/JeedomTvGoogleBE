@@ -2,6 +2,7 @@ package be.jeedomtv.model.driver
 
 import be.jeedomtv.model.Board
 import be.jeedomtv.model.BoardSection
+import be.jeedomtv.model.BoardWeather
 import be.jeedomtv.model.Changes
 import be.jeedomtv.model.Choice
 import be.jeedomtv.model.ColorKey
@@ -13,6 +14,8 @@ import be.jeedomtv.model.MAX_BOARD_NOTES
 import be.jeedomtv.model.MAX_BOARD_SECTIONS
 import be.jeedomtv.model.MAX_BOARD_TRAINS
 import be.jeedomtv.model.MAX_HEADER_ITEMS
+import be.jeedomtv.model.MAX_WEATHER_HOURS
+import be.jeedomtv.model.MAX_WEATHER_TEXT
 import be.jeedomtv.model.Page
 import be.jeedomtv.model.PageType
 import be.jeedomtv.model.PingInfo
@@ -28,6 +31,7 @@ import be.jeedomtv.model.TileIcon
 import be.jeedomtv.model.TileType
 import be.jeedomtv.model.Train
 import be.jeedomtv.model.TrainStatus
+import be.jeedomtv.model.WeatherHour
 import be.jeedomtv.model.TvCommand
 import be.jeedomtv.model.TvState
 import be.jeedomtv.model.VideoUrl
@@ -62,6 +66,7 @@ import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resumeWithException
+import kotlin.math.roundToInt
 
 /**
  * Pilote HTTP du plugin `jeetvbe` (contrat : docs/api.md), avec OkHttp et kotlinx.serialization.
@@ -553,8 +558,53 @@ internal fun parseBoard(element: JsonElement?): Board? {
             trains = (fields["trains"] as? JsonArray).orEmpty().mapNotNull { parseTrain(it) }.take(MAX_BOARD_TRAINS),
         )
     }
-    return Board(sections.take(MAX_BOARD_SECTIONS))
+    return Board(sections.take(MAX_BOARD_SECTIONS), parseWeather(obj["weather"]))
 }
+
+/**
+ * Météo du tableau ; null si absente ou si ce n'est pas un objet. Champs absents vides ou null,
+ * nombres en texte acceptés, icône gardée seulement si c'est une `mdi:…`, bornes du contrat.
+ */
+internal fun parseWeather(element: JsonElement?): BoardWeather? {
+    val obj = element as? JsonObject ?: return null
+    return BoardWeather(
+        city = obj["city"].asWeatherText(),
+        temp = obj["temp"].asRounded(),
+        icon = obj["icon"].asMdiIcon(),
+        condition = obj["condition"].asWeatherText(),
+        tmin = obj["tmin"].asRounded(),
+        tmax = obj["tmax"].asRounded(),
+        rain = obj["rain"].asWeatherText(),
+        warning = obj["warning"].asWeatherText(),
+        warningLevel = obj["warningLevel"].asCount().coerceAtMost(3),
+        updated = obj["updated"].asWeatherText(),
+        note = obj["note"].asWeatherText(),
+        hours = (obj["hours"] as? JsonArray).orEmpty().mapNotNull { parseWeatherHour(it) }.take(MAX_WEATHER_HOURS),
+    )
+}
+
+/** Une colonne horaire ; sans heure, elle n'a pas de sens : ignorée. */
+private fun parseWeatherHour(element: JsonElement): WeatherHour? {
+    val fields = element as? JsonObject ?: return null
+    val h = fields["h"].asWeatherText().takeIf { it.isNotBlank() } ?: return null
+    return WeatherHour(
+        h = h,
+        icon = fields["icon"].asMdiIcon(),
+        temp = fields["temp"].asRounded(),
+        rain = fields["rain"].asRounded()?.coerceIn(0, 100),
+    )
+}
+
+/** Texte de la météo, ramené à la limite du contrat ; vide si absent. */
+private fun JsonElement?.asWeatherText(): String = asText()?.trim()?.take(MAX_WEATHER_TEXT).orEmpty()
+
+/** Icône `mdi:…` ; toute autre valeur est ignorée (vide). */
+private fun JsonElement?.asMdiIcon(): String =
+    asText()?.trim()?.takeIf { it.startsWith("mdi:", ignoreCase = true) }.orEmpty()
+
+/** Nombre arrondi (température, pourcentage) : nombre ou texte numérique ; null sinon. */
+private fun JsonElement?.asRounded(): Int? =
+    asText()?.trim()?.toDoubleOrNull()?.takeIf { it.isFinite() }?.roundToInt()
 
 /** Un départ ; sans heure prévue, il n'a pas de sens : ignoré. */
 private fun parseTrain(element: JsonElement): Train? {

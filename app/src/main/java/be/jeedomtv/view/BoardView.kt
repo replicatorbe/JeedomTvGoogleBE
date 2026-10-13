@@ -18,6 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,9 +32,12 @@ import androidx.tv.material3.Text
 import be.jeedomtv.model.AppState
 import be.jeedomtv.model.Board
 import be.jeedomtv.model.BoardSection
+import be.jeedomtv.model.BoardWeather
+import be.jeedomtv.model.MAX_WEATHER_HOURS
 import be.jeedomtv.model.Page
 import be.jeedomtv.model.Train
 import be.jeedomtv.model.TrainStatus
+import be.jeedomtv.model.WeatherHour
 
 /*
  * Tableau des trains (page `board`) : écran plein façon tableau de gare SNCB, fond bleu nuit,
@@ -69,6 +75,11 @@ private val BoardPaddingY = 22.dp
 /** Ligne du bandeau d'un `notify` par-dessus la télé (et son écart) : place retirée aux trains. */
 private val BannerLineHeight = 42.dp
 
+/** Bande météo : temps actuel (et horloge), colonnes horaires, écart avec la première section. */
+private val WeatherLineHeight = 40.dp
+private val WeatherHoursHeight = 32.dp
+private val WeatherGap = 6.dp
+
 /**
  * Le tableau [page] en plein écran. [inOverlay] : par-dessus une autre application (panneau
  * `show`) ; le bandeau d'un `notify` s'y affiche alors en une ligne, et la fine barre annonce
@@ -84,20 +95,25 @@ fun BoardView(page: Page, state: AppState, inOverlay: Boolean = false) {
             .padding(horizontal = BoardPaddingX, vertical = BoardPaddingY),
     ) {
         val banner = state.banner?.takeIf { inOverlay }
-        val (row, trainsPerSection) = boardFit(board, maxHeight, reserved = if (banner != null) BannerLineHeight else 0.dp)
+        // Avec la bande météo, l'horloge passe sur sa première ligne : les titres n'ont plus à lui faire place.
+        val weather = board.weather?.takeIf { weatherBandLines(it) > 0 }
+        val reserved = (if (banner != null) BannerLineHeight else 0.dp) + weatherBandHeight(weather)
+        val (row, trainsPerSection) = boardFit(board, maxHeight, reserved)
         val font = with(LocalDensity.current) { (row * 0.56f).toSp() }
         val small = with(LocalDensity.current) { (row * 0.42f).toSp() }
+        val clockReserve = if (weather == null) row * 4 else 0.dp
         Column(Modifier.fillMaxSize()) {
             if (inOverlay && state.panelClosing) ClosingBar() else Spacer(Modifier.height(3.dp))
+            weather?.let { WeatherBand(it) }
             if (board.sections.isEmpty()) {
                 // Le plugin n'a encore rien calculé : le titre de la page et l'heure seulement.
-                SectionTitle(page.name, "", font, endReserve = row * 4)
+                SectionTitle(page.name, "", font, endReserve = clockReserve)
                 Text("Aucun train", color = BoardColors.Muted, fontSize = font, modifier = Modifier.padding(top = 12.dp))
             }
             board.sections.forEachIndexed { index, section ->
                 if (index > 0) Spacer(Modifier.height(row * SECTION_GAP))
                 // La première ligne de titre laisse la place de l'horloge, en haut à droite.
-                SectionTitle(section.title.ifBlank { page.name }, section.day, font, endReserve = if (index == 0) row * 4 else 0.dp)
+                SectionTitle(section.title.ifBlank { page.name }, section.day, font, endReserve = if (index == 0) clockReserve else 0.dp)
                 Spacer(Modifier.height(4.dp))
                 if (section.trains.isEmpty()) {
                     TrainRowBox(row, stripe = false, next = false) {
@@ -124,14 +140,16 @@ fun BoardView(page: Page, state: AppState, inOverlay: Boolean = false) {
                 Text("Retour fermer", color = BoardColors.Muted, fontSize = 14.sp)
             }
         }
-        // Horloge en haut à droite, comme sur le quai.
-        Text(
-            statusClockText(rememberMinuteTime()),
-            color = BoardColors.Text,
-            fontSize = font * 1.15f,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 3.dp),
-        )
+        // Horloge en haut à droite, comme sur le quai (sur la bande météo quand elle est là).
+        if (weather == null) {
+            Text(
+                statusClockText(rememberMinuteTime()),
+                color = BoardColors.Text,
+                fontSize = font * 1.15f,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 3.dp),
+            )
+        }
     }
 }
 
@@ -143,7 +161,7 @@ internal data class BoardFit(val row: Dp, val trainsPerSection: Int)
 
 /**
  * Hauteur d'une ligne pour que tout le tableau tienne dans [height] (moins [reserved], la ligne du
- * bandeau d'un `notify`) : titres (1,1 ligne), trains (« Aucun train » compte pour un), notes (0,8),
+ * bandeau d'un `notify` et la bande météo) : titres (1,1 ligne), trains (« Aucun train » compte pour un), notes (0,8),
  * écarts entre sections et une marge. Si les lignes passeraient sous [MinRowHeight], chaque section
  * montre moins de trains (voir [boardTrains] : le prochain à prendre et les suivants d'abord),
  * jusqu'à un seul par section ; les notes (grève, travaux) restent toujours.
@@ -299,6 +317,83 @@ private fun NoteLine(text: String, row: Dp, small: TextUnit) {
 }
 
 /**
+ * Bande météo en tête du tableau : ligne 1, le temps actuel, `tmin`/`tmax`, puis pluie, vigilance
+ * et note en couleur d'alerte, l'horloge à droite ; ligne 2, les colonnes horaires.
+ */
+@Composable
+private fun WeatherBand(weather: BoardWeather) {
+    Row(Modifier.fillMaxWidth().height(WeatherLineHeight), verticalAlignment = Alignment.CenterVertically) {
+        if (weather.icon.isNotBlank()) {
+            MdiIcon(weather.icon, BoardColors.Text, 30.dp)
+            Spacer(Modifier.width(10.dp))
+        }
+        val line = buildAnnotatedString {
+            weatherTempText(weather.temp).takeIf { it.isNotEmpty() }?.let {
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 24.sp)) { append(it) }
+            }
+            weather.condition.takeIf { it.isNotBlank() }?.let { append(if (length > 0) " $it" else it) }
+            weatherRangeText(weather.tmin, weather.tmax).takeIf { it.isNotEmpty() }?.let {
+                if (length > 0) append(" · ")
+                withStyle(SpanStyle(color = BoardColors.Muted)) { append(it) }
+            }
+            weatherAlerts(weather).forEach { (text, color) ->
+                if (length > 0) append(" · ")
+                withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) { append(text) }
+            }
+        }
+        Text(
+            line,
+            color = BoardColors.Text,
+            fontSize = 22.sp,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            statusClockText(rememberMinuteTime()),
+            color = BoardColors.Text,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier.padding(start = 20.dp),
+        )
+    }
+    if (weather.hours.isNotEmpty()) {
+        // Six cases de même largeur, même avec moins de colonnes : elles restent alignées à gauche.
+        Row(Modifier.fillMaxWidth().height(WeatherHoursHeight), verticalAlignment = Alignment.CenterVertically) {
+            weather.hours.forEach { WeatherHourCell(it, Modifier.weight(1f)) }
+            val free = MAX_WEATHER_HOURS - weather.hours.size
+            if (free > 0) Spacer(Modifier.weight(free.toFloat()))
+        }
+    }
+    Spacer(Modifier.height(WeatherGap))
+}
+
+/** « 09h », icône, « 15° » et le risque de pluie (en couleur d'alerte à partir de 50 %). */
+@Composable
+private fun WeatherHourCell(hour: WeatherHour, modifier: Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(weatherHourText(hour.h), color = BoardColors.Muted, fontSize = 18.sp, maxLines = 1, softWrap = false)
+        if (hour.icon.isNotBlank()) MdiIcon(hour.icon, BoardColors.Text, 24.dp)
+        weatherTempText(hour.temp).takeIf { it.isNotEmpty() }?.let {
+            Text(it, color = BoardColors.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        }
+        weatherRainText(hour.rain)?.let {
+            val alert = weatherRainAlert(hour.rain)
+            Text(
+                it,
+                color = if (alert) BoardColors.Slight else BoardColors.Muted,
+                fontSize = 16.sp,
+                fontWeight = if (alert) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+    }
+}
+
+/**
  * Trains montrés d'une section, [limit] au plus : à partir du prochain train à prendre (ceux d'avant
  * partent trop tôt pour qu'on les attrape), complétés par ceux d'avant s'il reste de la place.
  * Un seul ▶ par section : un second `next` (hors contrat) est ignoré.
@@ -355,3 +450,65 @@ fun boardUpdatedText(board: Board): String {
         else -> "vérifié entre ${times.first()} et ${times.last()}"
     }
 }
+
+// --- Météo (pure, testable sans Compose) -------------------------------------------------------
+
+/**
+ * Lignes de la bande météo : 0 (rien à montrer, comme sans météo), 1 (temps actuel ou note seule)
+ * ou 2 (avec les colonnes horaires).
+ */
+fun weatherBandLines(weather: BoardWeather?): Int {
+    if (weather == null) return 0
+    val first = weatherHasNow(weather) || weatherAlerts(weather).isNotEmpty()
+    return when {
+        weather.hours.isNotEmpty() -> 2
+        first -> 1
+        else -> 0
+    }
+}
+
+/** Hauteur de la bande météo (écart compris), retirée aux trains par [boardFit] ; 0 sans bande. */
+internal fun weatherBandHeight(weather: BoardWeather?): Dp = when (weatherBandLines(weather)) {
+    0 -> 0.dp
+    1 -> WeatherLineHeight + WeatherGap
+    else -> WeatherLineHeight + WeatherHoursHeight + WeatherGap
+}
+
+/** Le temps actuel est-il connu (température, icône, condition ou températures du jour) ? */
+private fun weatherHasNow(weather: BoardWeather): Boolean =
+    weather.temp != null || weather.tmin != null || weather.tmax != null ||
+        weather.icon.isNotBlank() || weather.condition.isNotBlank()
+
+/** « 14° », « -3° » ; vide si inconnue. */
+fun weatherTempText(temp: Int?): String = temp?.let { "$it°" }.orEmpty()
+
+/** « ↓7° ↑21° », une seule des deux si l'autre manque ; vide si aucune n'est connue. */
+fun weatherRangeText(tmin: Int?, tmax: Int?): String =
+    listOfNotNull(tmin?.let { "↓$it°" }, tmax?.let { "↑$it°" }).joinToString(" ")
+
+/** « 09 » → « 09h », « 9 » → « 09h » ; un autre texte est gardé tel quel. */
+fun weatherHourText(h: String): String {
+    val hour = h.trim()
+    return if (hour.length in 1..2 && hour.all(Char::isDigit)) "${hour.padStart(2, '0')}h" else hour
+}
+
+/** « 30 % » ; null sans risque (0 ou inconnu). */
+fun weatherRainText(rain: Int?): String? = rain?.takeIf { it > 0 }?.let { "$it %" }
+
+/** Risque de pluie à signaler en couleur d'alerte : 50 % ou plus. */
+fun weatherRainAlert(rain: Int?): Boolean = (rain ?: 0) >= 50
+
+/** Couleur d'une vigilance : jaune, orange, rouge ; sans niveau, celle des notes. */
+fun weatherWarningColor(level: Int): Color = when (level) {
+    1 -> BoardColors.Yellow
+    2 -> BoardColors.Delayed
+    3 -> BoardColors.Canceled
+    else -> BoardColors.Slight
+}
+
+/** Textes d'alerte de la ligne 1, dans l'ordre : pluie, vigilance (couleur de son niveau), note. */
+fun weatherAlerts(weather: BoardWeather): List<Pair<String, Color>> = listOfNotNull(
+    weather.rain.takeIf { it.isNotBlank() }?.let { it to BoardColors.Slight },
+    weather.warning.takeIf { it.isNotBlank() }?.let { it to weatherWarningColor(weather.warningLevel) },
+    weather.note.takeIf { it.isNotBlank() }?.let { it to BoardColors.Slight },
+)

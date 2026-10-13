@@ -10,8 +10,48 @@ const val MAX_BOARD_SECTIONS = 3
 const val MAX_BOARD_TRAINS = 6
 const val MAX_BOARD_NOTES = 2
 
-/** Contenu d'une page `board`, remplacé tel quel par `changes.boards`. */
-data class Board(val sections: List<BoardSection> = emptyList())
+/** Météo : 6 colonnes horaires au plus, textes de 120 caractères au plus. */
+const val MAX_WEATHER_HOURS = 6
+const val MAX_WEATHER_TEXT = 120
+
+/** Contenu d'une page `board`, remplacé tel quel par `changes.boards`. [weather] : null sans météo. */
+data class Board(val sections: List<BoardSection> = emptyList(), val weather: BoardWeather? = null)
+
+/**
+ * Météo du matin en tête du tableau, lue par le plugin dans le cache du plugin IRM. Avec une
+ * [note] seule (données périmées, équipement absent), les autres champs peuvent être vides.
+ */
+data class BoardWeather(
+    val city: String = "",
+    /** Température observée (°C) ; null si inconnue. */
+    val temp: Int? = null,
+    /** Icône `mdi:…` du temps qu'il fait ; vide si inconnue. */
+    val icon: String = "",
+    val condition: String = "",
+    /** Températures prévues du jour (°C). */
+    val tmin: Int? = null,
+    val tmax: Int? = null,
+    /** La pluie à venir en une phrase ; vide s'il n'y a rien à signaler. */
+    val rain: String = "",
+    /** Vigilance en cours (libellé) ; vide sinon. */
+    val warning: String = "",
+    /** 0 (aucune) à 3 (rouge). */
+    val warningLevel: Int = 0,
+    /** Heure (`HH:MM`) de la dernière lecture réussie de l'IRM ; vide si inconnue. */
+    val updated: String = "",
+    /** Avertissement à afficher (« Météo non relue depuis 06:40 ») ; vide sinon. */
+    val note: String = "",
+    val hours: List<WeatherHour> = emptyList(),
+)
+
+/** Une colonne horaire : heure de début (`HH`), icône, température et risque de pluie (%). */
+data class WeatherHour(
+    val h: String = "",
+    val icon: String = "",
+    val temp: Int? = null,
+    /** Risque de pluie 0 à 100 ; null si inconnu. */
+    val rain: Int? = null,
+)
 
 /** Un trajet : titre (« Soignies → Bruxelles »), jour affiché, heure de lecture et départs. */
 data class BoardSection(

@@ -2,9 +2,12 @@ package be.jeedomtv.view
 
 import be.jeedomtv.model.Board
 import be.jeedomtv.model.BoardSection
+import be.jeedomtv.model.BoardWeather
 import be.jeedomtv.model.Train
 import be.jeedomtv.model.TrainStatus
+import be.jeedomtv.model.WeatherHour
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import androidx.compose.ui.unit.dp
@@ -78,5 +81,76 @@ class BoardTextTest {
         assertEquals(listOf(false, true, false), boardTrains(twice, 3).map { it.next })
         assertEquals(listOf("07:31"), boardTrains(twice, 1).map { it.time })
         assertEquals(emptyList<Train>(), boardTrains(emptyList(), 2))
+    }
+
+    private val contractWeather = BoardWeather(
+        city = "Soignies", temp = 14, icon = "mdi:weather-cloudy", condition = "Couvert", tmin = 7, tmax = 21,
+        rain = "Risque de précipitations dans 2h40", warning = "Vigilance jaune — Brouillard", warningLevel = 1,
+        hours = listOf(WeatherHour("09", "mdi:weather-cloudy", 15, 0), WeatherHour("15", "mdi:weather-rainy", 20, 90)),
+    )
+
+    @Test
+    fun `meteo - temperatures, heures, risque de pluie`() {
+        assertEquals("14°", weatherTempText(14))
+        assertEquals("-3°", weatherTempText(-3))
+        assertEquals("", weatherTempText(null))
+        assertEquals("↓7° ↑21°", weatherRangeText(7, 21))
+        assertEquals("↑21°", weatherRangeText(null, 21))
+        assertEquals("↓7°", weatherRangeText(7, null))
+        assertEquals("", weatherRangeText(null, null))
+        assertEquals("09h", weatherHourText("09"))
+        assertEquals("09h", weatherHourText("9"))
+        assertEquals("15h", weatherHourText(" 15 "))
+        assertEquals("ce soir", weatherHourText("ce soir"))
+        assertEquals("30 %", weatherRainText(30))
+        assertNull(weatherRainText(0))
+        assertNull(weatherRainText(null))
+        assertFalse(weatherRainAlert(49))
+        assertTrue(weatherRainAlert(50))
+        assertFalse(weatherRainAlert(null))
+    }
+
+    @Test
+    fun `meteo - alertes de la ligne 1 et couleur de la vigilance`() {
+        assertEquals(
+            listOf("Risque de précipitations dans 2h40" to BoardColors.Slight, "Vigilance jaune — Brouillard" to BoardColors.Yellow),
+            weatherAlerts(contractWeather),
+        )
+        assertEquals(BoardColors.Delayed, weatherWarningColor(2))
+        assertEquals(BoardColors.Canceled, weatherWarningColor(3))
+        assertEquals(BoardColors.Slight, weatherWarningColor(0))
+        assertEquals(listOf("Météo non relue" to BoardColors.Slight), weatherAlerts(BoardWeather(note = "Météo non relue")))
+    }
+
+    @Test
+    fun `meteo - lignes de la bande`() {
+        assertEquals(0, weatherBandLines(null))
+        assertEquals("météo vide : comme sans météo", 0, weatherBandLines(BoardWeather()))
+        assertEquals("note seule : une ligne", 1, weatherBandLines(BoardWeather(note = "IRM absent")))
+        assertEquals(1, weatherBandLines(contractWeather.copy(hours = emptyList())))
+        assertEquals(2, weatherBandLines(contractWeather))
+        assertEquals(0.dp, weatherBandHeight(BoardWeather()))
+        assertTrue(weatherBandHeight(contractWeather) > weatherBandHeight(BoardWeather(note = "n")))
+    }
+
+    @Test
+    fun `mise en page - la bande meteo prend la place de trains, TV 1080p densite 2`() {
+        fun section(trains: Int, notes: Int = 0) =
+            BoardSection("b", "T", notes = List(notes) { "n" }, trains = List(trains) { Train("07:0$it") })
+        val height = 540.dp - 44.dp
+        val board = Board(listOf(section(6), section(6)))
+        val without = boardFit(board, height)
+        assertEquals(6, without.trainsPerSection)
+        val with = boardFit(board, height, reserved = weatherBandHeight(contractWeather))
+        assertEquals("2 sections de 6 trains et la bande : 5 trains par section", 5, with.trainsPerSection)
+        assertTrue(with.row >= 26.dp)
+        val noteOnly = boardFit(board, height, reserved = weatherBandHeight(BoardWeather(note = "n")))
+        assertEquals("note seule : une ligne, les 6 trains tiennent encore", 6, noteOnly.trainsPerSection)
+        val notes = boardFit(Board(listOf(section(6, 2), section(6, 2))), height, reserved = weatherBandHeight(contractWeather))
+        assertEquals(4, notes.trainsPerSection)
+        // Par-dessus la télé, avec le bandeau d'un `notify` en plus.
+        val overlay = boardFit(board, height, reserved = weatherBandHeight(contractWeather) + 42.dp)
+        assertTrue(overlay.row >= 26.dp)
+        assertTrue(overlay.trainsPerSection in 1..5)
     }
 }

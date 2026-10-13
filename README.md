@@ -66,6 +66,7 @@ Captures en 1920×1080, avec une maison de démonstration (noms et valeurs ficti
 - **Écran de veille domotique** : grande horloge, date, et les infos du bandeau en grand, à la place de l'écran ambiant Google TV. Voir [Écran de veille](#écran-de-veille-domotique).
 - **Touches de couleur** : rouge, vert, jaune et bleu ouvrent chacune une page choisie dans Jeedom, même par-dessus la télé. Voir [Touches de couleur](#touches-de-couleur).
 - **Tableau des trains** : page plein écran façon tableau de gare SNCB (retards, suppressions, voies, perturbations), remplie par le plugin à partir du plugin SNCB/NMBS et mise à jour en direct ; page cachée, ouverte par `Afficher Trains` (même par-dessus la télé), Retour la ferme.
+- **Météo du matin** sur le tableau des trains : bande en tête (temps actuel, min/max, pluie à venir, vigilance, colonnes horaires) lue par le plugin dans le plugin Météo Belgique IRM.
 - **Remplace TvOverlay** : **barre d'état** (heure et indicateurs en permanence dans un coin), **notifications riches** (icône, coin, image) et **vidéo en direct** de la caméra dans une incrustation. Voir [Barre d'état et notifications](#barre-détat-et-notifications-remplace-tvoverlay).
 - Icônes **Material Design Icons** embarquées (licence Apache 2.0, voir [Licences](#licences-des-composants-tiers)).
 - La version (« Jeedom TV 0.9.5 ») s'affiche discrètement sur l'écran de configuration.
