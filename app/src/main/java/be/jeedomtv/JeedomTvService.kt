@@ -34,20 +34,33 @@ class JeedomTvService : Service() {
         }
     }
 
-    /** Retour du réseau après une coupure (le premier rappel, à l'enregistrement, est ignoré). */
+    /**
+     * Retour du réseau après une coupure, ou nouveau réseau par défaut (autre point d'accès Wi-Fi,
+     * passage Wi-Fi ↔ Ethernet) : Android annonce alors le nouveau réseau sans perdre l'ancien
+     * d'abord, et l'attente en cours, liée à l'ancien, est morte. Le premier rappel, à
+     * l'enregistrement, est ignoré.
+     */
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         @Volatile
         private var lost = false
 
+        @Volatile
+        private var current: Network? = null
+
         override fun onLost(network: Network) {
             lost = true
+            if (network == current) current = null
         }
 
         override fun onAvailable(network: Network) {
-            if (lost) {
+            val previous = current
+            current = network
+            val switched = previous != null && previous != network
+            if (lost || switched) {
                 lost = false
+                val reason = if (switched) "nouveau réseau" else "réseau rétabli"
                 // Rappel sur un thread du système : le contrôleur vit sur le thread principal.
-                ContextCompat.getMainExecutor(app).execute { app.controller.onNetworkMaybeRestored() }
+                ContextCompat.getMainExecutor(app).execute { app.controller.onNetworkMaybeRestored(reason) }
             }
         }
     }

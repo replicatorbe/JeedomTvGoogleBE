@@ -24,6 +24,8 @@ import be.jeedomtv.model.Screen
 import be.jeedomtv.model.Train
 import be.jeedomtv.model.TrainStatus
 import be.jeedomtv.model.TvCommand
+import be.jeedomtv.model.driver.JeedomException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -42,16 +44,19 @@ class AppControllerBoardTest {
 
     private val config = JeedomConfig(host = "192.168.1.10", key = "cle")
 
+    /** Délai de relecture d'un tableau affiché sans nouvelles (AppController.BOARD_RESYNC_MS). */
+    private val BOARD_RESYNC_MS = 2 * 60_000L
+
     private fun board(vararg times: String, updated: String = "07:12") = Board(
         listOf(BoardSection("b1", "Soignies → Bruxelles", updated = updated, trains = times.map { Train(it, vehicle = "IC 1706") }))
     )
 
     /** Salon, la page Trains cachée glissée en deuxième position, puis Cuisine et Garage. */
-    private fun boardLayout(keys: Map<ColorKey, String>? = null) = contractLayout().let { base ->
+    private fun boardLayout(keys: Map<ColorKey, String>? = null, content: Board = board("07:09")) = contractLayout().let { base ->
         base.copy(
             pages = listOf(
                 base.pages[0],
-                Page("p7", "Trains", emptyList(), PageType.Board, hidden = true, board = board("07:09")),
+                Page("p7", "Trains", emptyList(), PageType.Board, hidden = true, board = content),
                 base.pages[1],
                 base.pages[2],
             ),
@@ -70,6 +75,8 @@ class AppControllerBoardTest {
             factory,
             backgroundScope,
             OverlayPermission { permission },
+            // Horloge du test : le délai de relecture du tableau suit le temps virtuel.
+            elapsedMs = { testScheduler.currentTime },
         )
         c.start()
         runCurrent()
@@ -517,6 +524,101 @@ class AppControllerBoardTest {
         factory.pushChanges(Changes("c3", "9f2c1a", emptyList()))
         runCurrent()
         assertEquals(updated, c.state.value.currentBoard)
+    }
+
+    @Test
+    fun `boards sans la note iRail - la note disparait du tableau affiche`() = runTest {
+        val factory = FakeDriverFactory(onLayout = { boardLayout() })
+        val c = started(factory, visible = true)
+        factory.send(TvCommand.Show(1, "p7", durationSec = 0))
+        runCurrent()
+        val note = "Horaires non relus depuis 06:47 : iRail injoignable ?"
+        val stale = Board(listOf(BoardSection("b1", "Soignies → Bruxelles", updated = "06:47", notes = listOf(note), trains = listOf(Train("07:09")))))
+        factory.pushChanges(Changes("c2", "9f2c1a", emptyList(), boards = mapOf("p7" to stale)))
+        runCurrent()
+        assertEquals(listOf(note), c.state.value.currentBoard?.sections?.single()?.notes)
+        val fresh = Board(listOf(stale.sections[0].copy(updated = "07:20", notes = emptyList())))
+        factory.pushChanges(Changes("c3", "9f2c1a", emptyList(), boards = mapOf("p7" to fresh)))
+        runCurrent()
+        assertEquals(emptyList<String>(), c.state.value.currentBoard?.sections?.single()?.notes)
+        assertEquals("07:20", c.state.value.currentBoard?.sections?.single()?.updated)
+        assertEquals("p7", c.page)
+    }
+
+    @Test
+    fun `erreur reseau sur le tableau - le layout recharge apporte le tableau frais`() = runTest {
+        var layout = boardLayout()
+        val factory = FakeDriverFactory(onLayout = { layout })
+        val c = started(factory, visible = true)
+        factory.send(TvCommand.Show(1, "p7", durationSec = 0))
+        runCurrent()
+        val fresh = board("07:38", updated = "07:20")
+        layout = boardLayout(content = fresh)
+        factory.failChanges(JeedomException("Jeedom injoignable"))
+        runCurrent()
+        assertTrue(c.state.value.offline)
+        advanceTimeBy(3_100)
+        assertEquals(fresh, c.state.value.currentBoard)
+        assertEquals("p7", c.page)
+        assertNull("reprise sans curseur", factory.changesCalls.last())
+    }
+
+    @Test
+    fun `tableau affiche sans boards pendant 2 min - relu par le layout, curseur garde`() = runTest {
+        var layout = boardLayout()
+        val factory = FakeDriverFactory(onLayout = { layout })
+        val c = started(factory, visible = true)
+        factory.send(TvCommand.Show(1, "p7", durationSec = 0))
+        runCurrent()
+        val before = factory.layoutCount
+        // Un `boards` perdu (attente abandonnée) : le plugin a un tableau frais que la TV n'a pas.
+        val fresh = board("07:38", updated = "07:20")
+        layout = boardLayout(content = fresh)
+        advanceTimeBy(60_000)
+        factory.pushChanges(changes("c2"))
+        runCurrent()
+        assertEquals("pas encore", before, factory.layoutCount)
+        advanceTimeBy(BOARD_RESYNC_MS)
+        factory.pushChanges(changes("c3"))
+        runCurrent()
+        assertEquals(before + 1, factory.layoutCount)
+        assertEquals(fresh, c.state.value.currentBoard)
+        assertEquals("c3", factory.changesCalls.last())
+        assertFalse(c.state.value.offline)
+    }
+
+    @Test
+    fun `pas de tableau affiche - aucune relecture du layout`() = runTest {
+        val factory = FakeDriverFactory(onLayout = { boardLayout() })
+        started(factory, visible = true)
+        val before = factory.layoutCount
+        advanceTimeBy(BOARD_RESYNC_MS * 2)
+        factory.pushChanges(changes("c1"))
+        runCurrent()
+        assertEquals(before, factory.layoutCount)
+    }
+
+    @Test
+    fun `layout lent arrive apres un boards - le tableau recu est garde`() = runTest {
+        val factory = FakeDriverFactory(onLayout = { boardLayout() })
+        factory.onExec = { throw JeedomException("Tuile inconnue", httpCode = 404) }
+        val c = started(factory, visible = true)
+        val gate = CompletableDeferred<Unit>()
+        factory.onLayout = { gate.await(); boardLayout() }
+        c.press(Ok) // Tuile inconnue : layout rechargé hors de la boucle, sa réponse traîne.
+        runCurrent()
+        val fresh = board("07:38", updated = "07:20")
+        factory.pushChanges(Changes("c1", "9f2c1a", emptyList(), boards = mapOf("p7" to fresh)))
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals(fresh, c.state.value.pages.single { it.id == "p7" }.board)
+    }
+
+    @Test
+    fun `resume du tableau pour le journal`() {
+        val b = Board(listOf(BoardSection("b1", "T", updated = "07:12", notes = listOf("n"), trains = listOf(Train("07:09")))))
+        assertEquals("[b1 vérifié 07:12, 1 trains, 1 notes]", b.summary())
     }
 
     @Test

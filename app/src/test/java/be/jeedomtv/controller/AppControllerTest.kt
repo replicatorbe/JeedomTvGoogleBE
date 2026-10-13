@@ -600,14 +600,34 @@ class AppControllerTest {
     }
 
     @Test
-    fun `cle refusee pendant la boucle - retour a Setup`() = runTest {
+    fun `cle refusee deux fois de suite pendant la boucle - retour a Setup`() = runTest {
         val factory = FakeDriverFactory()
         val c = connected(factory)
         c.onUiVisibilityChanged(true)
         factory.failChanges(AuthenticationException("Clé refusée par Jeedom"))
         runCurrent()
+        assertEquals("première fois : peut-être passagère", Screen.Pages, c.state.value.screen)
+        assertTrue(c.state.value.offline)
+        factory.failChanges(AuthenticationException("Clé refusée par Jeedom"))
+        advanceTimeBy(3_100)
         assertEquals(Screen.Setup, c.state.value.screen)
         assertEquals("Clé refusée par Jeedom", c.state.value.error)
+    }
+
+    @Test
+    fun `cle refusee une seule fois pendant la boucle - la boucle reprend sans Setup`() = runTest {
+        val factory = FakeDriverFactory()
+        val c = connected(factory)
+        c.onUiVisibilityChanged(true)
+        factory.failChanges(AuthenticationException("Clé refusée par Jeedom"))
+        runCurrent()
+        factory.pushChanges(changes("1"))
+        advanceTimeBy(3_100)
+        assertFalse(c.state.value.offline)
+        // Une nouvelle clé refusée isolée ne compte pas avec la précédente.
+        factory.failChanges(AuthenticationException("Clé refusée par Jeedom"))
+        runCurrent()
+        assertEquals(Screen.Pages, c.state.value.screen)
     }
 
     @Test

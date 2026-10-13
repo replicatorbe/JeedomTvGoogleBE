@@ -58,6 +58,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resumeWithException
@@ -75,9 +76,20 @@ class JeedomHttpDriver internal constructor(
 
     constructor(config: JeedomConfig) : this(config, sharedClient, buildBaseUrl(config.host))
 
-    /** Attente longue : le plugin répond au plus tard après 25 s, on attend jusqu'à 40 s. */
+    /**
+     * Attente longue : le plugin répond au plus tard après 25 s, on attend jusqu'à 40 s entre deux
+     * lectures et 45 s en tout (une réponse qui arriverait goutte à goutte ne bloque pas la boucle).
+     */
     private val longPollClient: OkHttpClient by lazy {
-        client.newBuilder().readTimeout(CHANGES_READ_TIMEOUT_S, TimeUnit.SECONDS).build()
+        client.newBuilder()
+            .readTimeout(CHANGES_READ_TIMEOUT_S, TimeUnit.SECONDS)
+            .callTimeout(CHANGES_CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /** Image jointe : jusqu'à 5 Mo, plus de temps en tout qu'un appel ordinaire. */
+    private val imageClient: OkHttpClient by lazy {
+        client.newBuilder().callTimeout(IMAGE_CALL_TIMEOUT_S, TimeUnit.SECONDS).build()
     }
 
     override suspend fun ping(): PingInfo {
@@ -142,7 +154,7 @@ class JeedomHttpDriver internal constructor(
     }
 
     override suspend fun image(id: String): ByteArray =
-        call("image", client, extraQuery = "id" to id, accept = "image/jpeg, image/png") { body ->
+        call("image", imageClient, extraQuery = "id" to id, accept = "image/jpeg, image/png") { body ->
             // Limite de 5 Mo : une TV de 2 Go ne doit pas avaler une image démesurée.
             if (body.contentLength() > MAX_IMAGE_BYTES) throw JeedomException("Image trop grande")
             val source = body.source()
@@ -232,8 +244,9 @@ class JeedomHttpDriver internal constructor(
         }
     }
 
+    /** Délai de lecture ([SocketTimeoutException]) ou d'appel total (callTimeout) dépassé : « ne répond pas ». */
     private fun networkError(e: IOException, url: HttpUrl): JeedomException =
-        if (e is SocketTimeoutException) {
+        if (e is InterruptedIOException) {
             JeedomException("Jeedom ne répond pas (${url.host})", e)
         } else {
             JeedomException("Jeedom injoignable (${url.host})", e)
@@ -260,6 +273,11 @@ class JeedomHttpDriver internal constructor(
         const val API_PATH = "plugins/jeetvbe/core/php/api.php"
         const val KEY_HEADER = "X-JEETVBE-KEY"
         const val CHANGES_READ_TIMEOUT_S = 40L
+        const val CHANGES_CALL_TIMEOUT_S = 45L
+
+        /** Appel ordinaire (ping, layout, exec, state…) : 15 s en tout ; image : 30 s. */
+        const val CALL_TIMEOUT_S = 15L
+        const val IMAGE_CALL_TIMEOUT_S = 30L
 
         /** Taille maximale d'une image jointe (contrat : 5 Mo). */
         const val MAX_IMAGE_BYTES = 5L * 1024 * 1024
@@ -269,6 +287,7 @@ class JeedomHttpDriver internal constructor(
             OkHttpClient.Builder()
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
+                .callTimeout(CALL_TIMEOUT_S, TimeUnit.SECONDS)
                 .build()
         }
 

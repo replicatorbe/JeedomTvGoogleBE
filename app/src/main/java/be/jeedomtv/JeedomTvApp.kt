@@ -49,6 +49,7 @@ class JeedomTvApp : Application() {
         controller = AppController(
             model, settings, driverFactory, scope, overlayPermission, BuildConfig.VERSION_NAME,
             elapsedMs = { SystemClock.elapsedRealtime() },
+            log = { Log.i(TAG, it) },
         )
 
         // Police des icônes (1,3 Mo) chargée hors du thread principal : la barre d'état n'attend pas.

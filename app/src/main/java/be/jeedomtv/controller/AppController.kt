@@ -58,6 +58,8 @@ class AppController(
     private val appVersion: String? = null,
     /** Horloge en ms, veille comprise (`SystemClock.elapsedRealtime` sur la TV). */
     private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** Journal de diagnostic (logcat sur la TV) : boucle des changements et tableaux reçus. */
+    private val log: (String) -> Unit = {},
 ) {
     val state: StateFlow<AppState> = model.state
 
@@ -78,6 +80,16 @@ class AppController(
 
     /** Début de l'attente longue en cours ([elapsedMs]) : au-delà de [STALE_CALL_MS], elle est morte. */
     private var changesCallStartedAt = 0L
+
+    /**
+     * Dernière fois ([elapsedMs]) que les tableaux des trains ont été reçus (`boards`) ou relus
+     * (layout). Un tableau affiché sans nouvelles depuis [BOARD_RESYNC_MS] est relu par le layout :
+     * un `boards` perdu (attente abandonnée, réponse coupée) ne fige pas l'écran.
+     */
+    private var boardsSyncedAt = 0L
+
+    /** Compteur des `boards` appliqués : un layout parti avant n'écrase pas un tableau plus récent. */
+    private var boardsVersion = 0
 
     /** Efface le message temporaire. */
     private var noticeTimer: Job? = null
@@ -258,15 +270,15 @@ class AppController(
             return
         }
         val stale = elapsedMs() - changesCallStartedAt > STALE_CALL_MS
-        if (changesJob?.isActive != true || state.value.offline || stale) onNetworkMaybeRestored()
+        if (changesJob?.isActive != true || state.value.offline || stale) onNetworkMaybeRestored("réveil de l'écran")
     }
 
     /**
      * Rallumage de l'écran ou retour du réseau : la boucle des changements repart aussitôt,
      * sans attendre l'échec d'une attente longue sur une connexion morte.
      */
-    fun onNetworkMaybeRestored() {
-        if (driver != null && !authBlocked && connectJob?.isActive != true) startChangesLoop(reloadFirst = true)
+    fun onNetworkMaybeRestored(reason: String = "réseau rétabli") {
+        if (driver != null && !authBlocked && connectJob?.isActive != true) startChangesLoop(reloadFirst = true, reason)
     }
 
     /** La vue a mis l'application en arrière-plan suite à [AppState.exitRequested]. */
@@ -304,11 +316,12 @@ class AppController(
             currentCoroutineContext().ensureActive()
             useDriver(newDriver, config)
             applyLayout(layout) { it.copy(tvName = ping.tvName, offline = false, error = null).copy(screen = Screen.Pages) }
-            startChangesLoop(reloadFirst = false)
+            startChangesLoop(reloadFirst = false, "connexion")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             val message = (e as? JeedomException)?.message ?: GENERIC_ERROR
+            log("connexion impossible : $message")
             if (userInitiated || (e is AuthenticationException && state.value.uiVisible)) {
                 showSetupError(message)
                 // L'ancienne configuration, s'il y en a une, reste en service.
@@ -317,7 +330,7 @@ class AppController(
                 // Jeedom injoignable au démarrage : la boucle réessaie et chargera les pages.
                 useDriver(newDriver, config)
                 update { it.copy(screen = Screen.Pages, offline = true, error = null) }
-                startChangesLoop(reloadFirst = false)
+                startChangesLoop(reloadFirst = false, "démarrage hors ligne")
             }
         }
     }
@@ -352,14 +365,15 @@ class AppController(
     // --- Changements en direct ---------------------------------------------------------------
 
     private fun ensureChangesLoop() {
-        if (changesJob?.isActive != true) startChangesLoop(reloadFirst = false)
+        if (changesJob?.isActive != true) startChangesLoop(reloadFirst = false, "configuration précédente")
     }
 
     /** (Re)démarre la boucle ; une seule tourne à la fois. */
-    private fun startChangesLoop(reloadFirst: Boolean) {
+    private fun startChangesLoop(reloadFirst: Boolean, reason: String) {
         stopChangesLoop()
         val target = driver ?: return
         if (authBlocked) return
+        log("boucle des changements (re)lancée : $reason")
         changesJob = scope.launch { runChanges(target, reloadFirst) }
         armReachWatchdog()
     }
@@ -398,6 +412,7 @@ class AppController(
         var since: String? = null
         var reload = reloadFirst
         var failures = 0
+        var authFailures = 0
         while (true) {
             try {
                 if (reload) {
@@ -408,15 +423,22 @@ class AppController(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        // Toujours injoignable : l'appel à changes échouera et réessaiera.
+                        // Toujours injoignable : l'appel à changes échouera et réessaiera. Le tableau
+                        // affiché n'a pas été relu : il le sera dès que Jeedom répondra.
+                        boardsSyncedAt = BOARDS_NEVER_SYNCED
+                        log("layout impossible à recharger : ${e.message}")
                     }
+                } else if (boardResyncDue()) {
+                    resyncBoards(target)
                 }
                 val restarted = since == null
                 changesCallStartedAt = elapsedMs()
                 val result = target.changes(since)
                 currentCoroutineContext().ensureActive()
                 since = result.since
+                if (failures > 0) log("changes rétabli après $failures échec(s)")
                 failures = 0
+                authFailures = 0
                 update { it.copy(offline = false) }
                 // Jeedom répond : la barre reprend aussitôt son aspect normal.
                 setJeedomReachable(true)
@@ -425,11 +447,12 @@ class AppController(
                 // Barre d'état : état complet, remplacé tel quel (hors révision : elle change souvent).
                 if (result.statusChanged) update { it.copy(status = result.status) }
                 // Tableaux des trains : contenu complet, remplacé tel quel (hors révision lui aussi).
-                if (result.boards.isNotEmpty()) update { it.withBoards(result.boards) }
+                if (result.boards.isNotEmpty()) applyBoards(result.boards)
                 val revision = result.revision
                 // Les ordres ne sont livrés qu'une fois : un layout impossible à recharger ne doit
                 // pas les perdre. Ils passent, puis l'erreur relance la boucle.
                 val layoutError = if (revision != null && revision != state.value.revision) {
+                    log("révision $revision (affichée : ${state.value.revision}) : layout rechargé")
                     try {
                         applyLayout(target.layout())
                         null
@@ -450,8 +473,12 @@ class AppController(
             } catch (e: Exception) {
                 // Boucle annulée pendant l'appel (réveil, nouvelle configuration) : pas de faux « hors ligne ».
                 currentCoroutineContext().ensureActive()
-                if (e is AuthenticationException && state.value.uiVisible) {
+                authFailures = if (e is AuthenticationException) authFailures + 1 else 0
+                // Une clé refusée une seule fois peut venir d'un Jeedom qui redémarre : on réessaie
+                // d'abord, pour ne pas remplacer le tableau affiché par le formulaire.
+                if (e is AuthenticationException && state.value.uiVisible && authFailures >= AUTH_FAILURES_BEFORE_SETUP) {
                     // Clé régénérée ou équipement désactivé dans Jeedom : il faut ressaisir la clé.
+                    log("clé refusée $authFailures fois : retour à la configuration")
                     changesJob = null
                     authBlocked = true
                     showSetupError(e.message ?: GENERIC_ERROR)
@@ -460,7 +487,9 @@ class AppController(
                 update { it.copy(offline = true) }
                 failures++
                 if (failures >= UNREACHABLE_FAILURES) setJeedomReachable(false)
-                delay(retryDelayMs(failures - 1))
+                val pause = retryDelayMs(failures - 1)
+                log("changes en échec n°$failures (${e.javaClass.simpleName} : ${e.message}) ; nouvel essai dans ${pause / 1000} s")
+                delay(pause)
                 reload = true
                 since = null
             }
@@ -484,20 +513,59 @@ class AppController(
     /** Horodatage de la valeur actuelle de [tileId]. */
     private fun stampOf(tileId: String): Long = tileStamps[tileId] ?: layoutStamp
 
-    private suspend fun applyLayout(layout: Layout, extra: (AppState) -> AppState = { it }) {
+    /**
+     * [boardsSeen] : valeur de [boardsVersion] au départ de la requête du layout. Si des `boards`
+     * sont arrivés entre-temps, les tableaux du layout sont plus anciens : ceux reçus sont gardés.
+     */
+    private suspend fun applyLayout(layout: Layout, boardsSeen: Int? = null, extra: (AppState) -> AppState = { it }) {
         currentCoroutineContext().ensureActive()
         // Valeurs fraîches pour toutes les tuiles : une réponse d'`exec` en vol est périmée.
         tileStamps.clear()
         layoutStamp = ++valueClock
-        update { extra(it).withLayout(layout) }
+        val keepBoards = boardsSeen != null && boardsSeen != boardsVersion
+        update { s ->
+            val fresh = extra(s).withLayout(layout)
+            if (keepBoards) fresh.withBoards(s.boardsByPage()) else fresh
+        }
+        if (keepBoards) log("layout plus ancien que les derniers tableaux reçus : tableaux gardés")
+        boardsSyncedAt = elapsedMs()
+    }
+
+    /** `boards` de `changes` : tableaux complets, remplacés tels quels (hors révision). */
+    private fun applyBoards(boards: Map<String, Board>) {
+        boardsVersion++
+        boardsSyncedAt = elapsedMs()
+        update { it.withBoards(boards) }
+        boards.forEach { (pageId, board) -> log("tableau reçu : $pageId ${board.summary()}") }
+    }
+
+    /** Tableau des trains affiché sans nouvelles depuis [BOARD_RESYNC_MS] : à relire. */
+    private fun boardResyncDue(): Boolean =
+        state.value.currentPage?.isBoard == true && elapsedMs() - boardsSyncedAt >= BOARD_RESYNC_MS
+
+    /**
+     * Relit le tableau affiché par le layout, entre deux attentes (jamais en parallèle d'elles), en
+     * gardant le curseur. Un échec n'arrête pas la boucle : nouvel essai après [BOARD_RESYNC_MS].
+     */
+    private suspend fun resyncBoards(target: JeedomDriver) {
+        try {
+            applyLayout(target.layout())
+            log("tableau relu par le layout : ${state.value.currentBoard?.summary()}")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            boardsSyncedAt = elapsedMs()
+            log("tableau impossible à relire : ${e.message}")
+        }
     }
 
     /** Recharge le layout hors de la boucle (tuile inconnue de Jeedom : la configuration a changé). */
     private fun reloadLayoutSoon() {
         val target = driver ?: return
+        val boardsSeen = boardsVersion
         scope.launch {
             try {
-                applyLayout(target.layout())
+                applyLayout(target.layout(), boardsSeen)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1713,6 +1781,15 @@ class AppController(
         /** Sans aucune réponse de `changes` pendant ce temps, Jeedom passe pour injoignable. */
         const val UNREACHABLE_AFTER_MS = 60_000L
 
+        /** Clés refusées d'affilée avant le retour au formulaire (la première peut être passagère). */
+        const val AUTH_FAILURES_BEFORE_SETUP = 2
+
+        /** Tableau affiché sans `boards` ni layout depuis ce délai : relu par le layout. */
+        const val BOARD_RESYNC_MS = 2 * 60_000L
+
+        /** [boardsSyncedAt] d'un tableau qui n'a pas pu être relu : à relire au plus tôt. */
+        private const val BOARDS_NEVER_SYNCED = Long.MIN_VALUE / 2
+
         /** Attente au-delà de laquelle une notification en file est périmée (au moins sa durée). */
         const val PENDING_STALE_MIN_MS = 30_000L
 
@@ -1796,6 +1873,14 @@ internal fun AppState.withBoards(boards: Map<String, Board>): AppState {
         if (page.isBoard && board != null) page.copy(board = board) else page
     })
 }
+
+/** Tableaux des pages `board`, par id de page. */
+private fun AppState.boardsByPage(): Map<String, Board> =
+    pages.mapNotNull { page -> page.board?.takeIf { page.isBoard }?.let { page.id to it } }.toMap()
+
+/** Résumé d'un tableau pour le journal : heure de lecture et nombre de trains et de notes par section. */
+internal fun Board.summary(): String =
+    sections.joinToString(prefix = "[", postfix = "]") { "${it.id} vérifié ${it.updated.ifBlank { "?" }}, ${it.trains.size} trains, ${it.notes.size} notes" }
 
 /** Nouvelles valeurs de tuiles, dans toutes les pages où elles apparaissent. */
 internal fun AppState.withChanges(changes: List<TileChange>): AppState {
